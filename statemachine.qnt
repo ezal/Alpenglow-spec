@@ -107,7 +107,7 @@ module consensus {
 
   // • BlockNotarized(slot(b), hash(b)): Pool holds a notarization certificate for
   // block b.
-  def notarizedBlocksCondition(v: ProcessID, b: BlockReference): bool =
+  def notarizedBlocksCondition(b: BlockReference): bool =
     isCertified(NotarizationCertificate(b), allMessages)
 
   /// Emit BlockNotarized and process it. The structure of this actions is that we first
@@ -115,7 +115,7 @@ module consensus {
   /// and then we pick one non-deterministically, process it, and updated the global state.
   action blockNotarizedAction(v: ProcessID, now: Slot): bool =
     val bs = allBlocks.filter(b =>
-      notarizedBlocksCondition(v, { slot: now, hash: b.hash })
+      notarizedBlocksCondition({ slot: now, hash: b.hash })
     )
     all {
       bs.size() > 0,
