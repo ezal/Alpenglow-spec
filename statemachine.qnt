@@ -31,7 +31,6 @@ module consensus {
           { ...s, activeTimeouts: s.activeTimeouts.set(v, s.activeTimeouts.get(v).union(Set(slot))) }
       })
 
-
   //
   //
   // State Machine
@@ -42,15 +41,12 @@ module consensus {
 
   val finalizedBlocks: Slot -> Set[Blockhash] = aliveSlots.mapBy(s => finalized(s, allMessages))
 
-  var ch: Slot -> Set[Blockhash] // blockchain as seen by message soup. Ancestors not seen as finalized here if they are not finalized themselves
-
+  var ch: Slot -> Set[Blockhash] // blockchain as seen by message soup
 
   var counter: int // Required for TLC
 
   /// all the messages that could be received, i.e., the ones sent by benevolent processes
-  /// and the ones that byzantine processes may send. We use this in the actions to allow
-  /// processes to respond to byzantine behavior. At the same time, we don't clutter
-  /// msgBuffer with byzantine messages.
+  /// and the ones that byzantine processes may send
   val allMessages = s.msgBuffer.union(byzNetworkMsgs)
 
   action init = all {
@@ -102,20 +98,16 @@ module consensus {
     counter' = counter + 1,
   }
 
-  // Definition 15 (Pool events). The following events are emitted as input for
-  // Algorithm 1:
+  // Definition 15 (Pool events)
 
-  // • BlockNotarized(slot(b), hash(b)): Pool holds a notarization certificate for
-  // block b.
-  def notarizedBlocksCondition(b: BlockReference): bool =
+  // • BlockNotarized(slot(b), hash(b)): Pool holds a notarization certificate for block b.
+  def notarizedBlocksCondition(v: ProcessID, b: BlockReference): bool =
     isCertified(NotarizationCertificate(b), allMessages)
 
-  /// Emit BlockNotarized and process it. The structure of this actions is that we first
-  /// build a set of data (blocks or slot numbers) for which a certain event is enabled,
-  /// and then we pick one non-deterministically, process it, and updated the global state.
+  /// Emit BlockNotarized and process it
   action blockNotarizedAction(v: ProcessID, now: Slot): bool =
     val bs = allBlocks.filter(b =>
-      notarizedBlocksCondition({ slot: now, hash: b.hash })
+      notarizedBlocksCondition(v, { slot: now, hash: b.hash })
     )
     all {
       bs.size() > 0,
@@ -123,21 +115,17 @@ module consensus {
       v.processInput(BlockNotarizedInput({ slot: b.slot, hash: b.hash })),
     }
 
-  // • ParentReady(s, hash(b)): Slot s is the first of its leader window, and Pool
-  // holds a notarization or notar-fallback certificate for a previous block b,
-  // and skip certificates for every slot s′ since b, i.e., for slot(b) < s′ < s.
+  // • ParentReady(s, hash(b)): Simplified - just check if parent is notarized
   pure def parentReadyCondition(slot: Slot, hash: Blockhash, msgs: Set[NetworkMsg]): bool = all {
-    firstSlotInLeaderWindow(slot),
+    // For slot 0, always ready
     or {
-      slot == 0, // TODO: introduced by Josef
+      slot == 0,
+      // For other slots, parent must be notarized or have notar-fallback certificate
       0.to(slot - 1).exists(s =>
         val b = { slot: s, hash: hash }
-        and {
-          or {
-            isCertified(NotarizationCertificate(b), msgs),
-            isCertified(NotarFallbackCertificate(b), msgs)
-          },
-          b.slot.to(slot).subseteq(slotsSkipCertified(msgs))
+        or {
+          isCertified(NotarizationCertificate(b), msgs),
+          isCertified(NotarFallbackCertificate(b), msgs)
         }
       )
     }
@@ -157,7 +145,6 @@ module consensus {
   pure def votedToSkip(s: Slot, msgs: Set[NetworkMsg]): Set[ProcessID] =
     msgs.filter(m =>  m.msg == SkipVoteMsg(s)).map(m => m.sender)
 
-  // Warning: vote doesn't contain parent. Assumption about parent hashed in hash?
   pure def votedToNotar(b: BlockReference, msgs: Set[NetworkMsg]): Set[ProcessID] =
     msgs.filter(m => m.msg == NotarVoteMsg(b)).map(m => m.sender)
 
@@ -181,10 +168,6 @@ module consensus {
     val notar = votedToNotar(b.reference(), allMessages)
     val skip = votedToSkip(now, allMessages)
     // notar(b) ≥ 40% or (skip(s) + notar(b) ≥ 60% and notar(b) ≥ 20%).
-    // The paper postulates that the pool stores for each sender and slot a skip or a notar message
-    // but not both. Thus, in the paper they can sum up the sizes of the sets. In this spec we
-    // abstract the pool so that here we need to build the union
-    // of the skip and notar sets and then compute the size
     or {
       surpassesThreshold(notar, 40),
       and {
@@ -237,16 +220,9 @@ module consensus {
     })
 
     // skip(s) + Σ_b notar(b) − max_b notar(b) ≥ 40%.
-    // Question: is (+) here the sum of the sizes or the size of the union?
-    // same for (-)
-
-    // skip(s)
     votedToSkip(now, allMessages)
-      // + Σ_b notar(b)
       .union(allNotarVotes)
-      // - max_b notar(b)
       .exclude(votedToNotar(blockWithMostVotes, allMessages))
-      // ≥ 40%.
       .surpassesThreshold(40)
   }
 
@@ -266,7 +242,6 @@ module consensus {
       safeToSkipAction(v, slot),
     }
 
-
   /// Main step action. Includes all behavior
   action step = all {
     counter < 10,
@@ -285,8 +260,6 @@ module consensus {
     messageResponse(v, slot),
   }
 
-
-
   //
   //
   // Invariants and Witnesses
@@ -299,9 +272,9 @@ module consensus {
   val fastAgreement =
     aliveSlots.forall(slot => fastFinalized(slot, allMessages).union(finalized(slot, allMessages)).size() <= 1)
 
-  // Witness was used to find bug in safeToNotar encoding
+  // Witness - updated to use BadSlot instead of BadWindow
   val noBad =
-    benevolent.forall(v => not(s.system.get(v).state[1].contains(BadWindow)))
+    benevolent.forall(v => not(s.system.get(v).state[1].contains(BadSlot)))
 
   /// Witness to find a run where a block is fast finalized
   val fastFinalizedWitness =
@@ -311,8 +284,7 @@ module consensus {
   val timeoutWitness = 
      s.activeTimeouts.values().forall(v => v == Set())
 
-  /// Theorem 1 (safety). If any correct node finalizes a block b in slot s and any
-  /// correct node finalizes any block b′ in any slot s′ ≥ s, b′ is a descendant of b.
+  /// Theorem 1 (safety)
   val safety = tuples(aliveSlots, allBlocks).forall(((slot, block)) => {
     val finalizedAtSlot = finalized(slot, allMessages)
     block.hash.in(finalizedAtSlot) implies tuples(
@@ -322,7 +294,6 @@ module consensus {
   })
 
   /// This generates example traces where a block is finalized after some empty slots
-  /// increase max steps to approx 100.
   val emptySlotsWitness = 
     aliveSlots.forall(s1 => 
       aliveSlots.forall(s2 => 
@@ -330,19 +301,14 @@ module consensus {
       ch.get(s1).size() >= ch.get(s2).size()))
                               
   /// This generates example traces where every slot is finalized
-  /// increase max steps to approx 100.
   val noEmptySlotsWitness = 
     aliveSlots.exists(s1 => 
       ch.get(s1).size() == 0)
-
-  // TODO finalize ancestors locally
 }
 
 module some_byz {
   // For a trace where a value is fast finalized call
   // quint run statemachine.qnt --main some_byz --invariant fastFinalizedWitness
-  // Same but one process reached ItsOver
-  // quint run statemachine.qnt --main some_byz --invariant fastFinalizedWitness  --seed=0x11fa3a6ddd2666   
   import consensus(
     correct = Set("v1", "v2", "v3", "v4", "v5"),
     good = Set(),
@@ -370,15 +336,10 @@ module some_byz {
     .then(receiveSpecificBlock("v3", { hash: 42, parent: -1, slot: 0 }))
     .then(receiveSpecificBlock("v4", { hash: 42, parent: -1, slot: 0 }))
     .expect(fastFinalized(0, allMessages) == Set(42))
-
 }
 
-
 module some_byz_vp {
-  // For a trace where a value is fast finalized call
-  // quint run statemachine.qnt --main some_byz --invariant fastFinalizedWitness
-  // Same but one process reached ItsOver
-  // quint run statemachine.qnt --main some_byz --invariant fastFinalizedWitness  --seed=0x11fa3a6ddd2666   
+  // For a trace where a value is fast finalized with variable voting power
   import consensus(
     correct = Set("v1", "v2"),
     good = Set(),
@@ -398,16 +359,7 @@ module some_byz_vp {
     aliveSlots = 0.to(2),
     aliveHashes = 42.to(49),
   ).*
-
-  // run ffTest =
-  //   init
-  //   .then(receiveSpecificBlock("v1", { hash: 42, parent: -1, slot: 0 }))
-  //   .then(receiveSpecificBlock("v2", { hash: 42, parent: -1, slot: 0 }))
-  //   .expect(fastFinalized(0, allMessages) == Set(42))
-
 }
-
-
 
 module too_many_byz_1 {
   // to violate agreement, run
@@ -480,6 +432,4 @@ module too_many_byz {
             { msg: FinalVoteMsg(0), sender: "b1" },
             { msg: FinalVoteMsg(0), sender: "b2" })
       .subseteq(allMessages))
-  
-
 }

@@ -1,11 +1,12 @@
 // -*- mode: Bluespec; -*-
 /**
- * Specification of Alpenglow Consensus [1]
+ * Simplified Specification of Alpenglow Consensus
+ * - Removed slot windows (no more parallel consensus instances)
+ * - Each slot can have a different leader
+ * - Kept concurrent fast/slow paths
  *
- * [1]: https://drive.google.com/file/d/1y_7ddr8oNOknTQYHzXeeMD2ProQ0WjMs/view
- *
- * Josef Widder, Gabriela Moreira
- * Informal Systems, 2025
+ * Based on the original specification by Josef Widder and Gabriela Moreira
+ * Simplified by removing slot windows
  */
 
 module alpenglow {
@@ -31,14 +32,14 @@ module alpenglow {
     state: List[Set[SlotObject]],
   }
 
-  /// Definition 18 (Votor State)
+  /// Definition 18 (Votor State) - simplified
   type SlotObject =
     | ParentReady(Blockhash)
     | Voted
     | VotedNotar(Blockhash)
     | BlockNotarized(Blockhash)
     | ItsOver
-    | BadWindow
+    | BadSlot  // renamed from BadWindow
 
   type ConsensusInput =
     | BlockInput(Block)
@@ -48,7 +49,7 @@ module alpenglow {
     | SafeToNotarInput(BlockReference)
     | SafeToSkipInput(Slot)
 
-  /// Table 4 (Alpenglow’s voting messages)
+  /// Table 4 (Alpenglow's voting messages)
   type Message =
     | NotarVoteMsg(BlockReference)
     | NotarFallBackVoteMsg(BlockReference)
@@ -63,10 +64,10 @@ module alpenglow {
     | SkipCertificate(Slot)
     | FinalizationCertificate(Slot)
 
-  type TimeoutEventData = Slot // TODO not sure what timeouts they start
+  type TimeoutEventData = Slot
 
   type ConsensusOutput =
-    | ScheduleEventTimeout(TimeoutEventData) // might be multiple from one function call
+    | ScheduleEventTimeout(TimeoutEventData)
     | Broadcast(Message)
 
   type Bookkeeping
@@ -76,8 +77,7 @@ module alpenglow {
     post: LocalState,
   }
 
-  /// Messages on the network carry the sender (the broadcast call in the pseudo code
-  /// doesn't carry the sender, so does our encoding of the consensus main loop)
+  /// Messages on the network carry the sender
   type NetworkMsg = {
     sender: ProcessID,
     msg: Message,
@@ -173,10 +173,6 @@ module alpenglow {
   pure def setPendingBlock(ls: LocalState, slot: Slot, b: Option[Block]): LocalState =
     { ...ls, pendingBlocks: ls.pendingBlocks.replaceAt(slot, b) }
 
-  /// line 10 of TryNotar. TODO: Is there more to it?
-  pure def firstSlotInLeaderWindow(slot: Slot): bool =
-    slot % 4 == 0 // TODO implement
-
   pure def notarizedBlocks(msgs: Set[NetworkMsg]): Set[BlockReference] =
     msgs
       .fold(Set(), (s, x) => match x.msg {
@@ -202,15 +198,8 @@ module alpenglow {
       })
       .filter(s => isCertified(SkipCertificate(s), msgs))
 
-  // Definition 5 (ancestor and descendant). An ancestor of a block b is any
-  // block that can be reached from b by the parent links, i.e., b, b’s parent,
-  // b’s parent’s parent, and so on. If b′ is an ancestor of b, b is a
-  // descendant of b′ . Note that b is its own ancestor and descendant.
+  // Definition 5 (ancestor and descendant)
   pure def isDescendant(a: Block, b: Block): bool = {
-    // TODO: this can have better performance if we can make assumptions about slots
-    // Filter by minimal slot
-    // The slot of the parent will always be smaller then that of the child
-    // but its not in increments of 1 like in mysticeti
     pure val bAncestors = (b.slot.to(a.slot)).fold(Set(b.hash), (path, s) =>
       pure val potentialAncestors = allBlocks.filter(block => block.slot == s)
       pure val ancestors = potentialAncestors.filter(ancestor =>
@@ -223,11 +212,7 @@ module alpenglow {
   }
 
   // Definition 13 (certificates)
-  // They are defined over a set of messages. Currently we evaluate this over the
-  // message soup. But they can be also used over locally received messages if such
-  // a semantics is needed.
-
-  /// Table 5: Apenglow's certificate messages.
+  /// Table 5: Alpenglow's certificate messages.
   pure def isCertified(cert: Certificate, msgs: Set[NetworkMsg]): bool = {
     pure val aggregatedVotes = msgs.filter(m => {
       match cert {
@@ -255,9 +240,7 @@ module alpenglow {
     aggregatedVotes.map(x => x.sender).surpassesThreshold(threshold)
   }
 
-  // Definition 14 (finalization). We have two ways to finalize a block:
-  // Warning: definitions uses "unique" perhaps unclear in case of more faults
-
+  // Definition 14 (finalization)
   /// If a finalization certificate on slot s is in Pool, the unique notarized block
   /// in slot s is finalized (we call this slow-finalized).
   pure def finalized(slot: Slot, msgs: Set[NetworkMsg]): Set[Blockhash] =
@@ -277,32 +260,20 @@ module alpenglow {
       .filter(b => isCertified(FastFinalizationCertificate(b), msgs))
       .map(b => b.hash)
 
-  // Algorithm 2
+  // Algorithm 2 - Simplified without windows
 
-  pure def windowSlots(slot: Slot): Set[Slot] =
-    // TODO: Not sure this makes any sense
-    if (slot % 4 == 0)
-      Set(slot, slot + 1, slot + 2, slot + 3)
-    else if (slot % 4 == 1)
-      Set(slot - 1, slot, slot + 1, slot + 2)
-    else if (slot % 4 == 2)
-      Set(slot - 2, slot - 1, slot, slot + 1)
-    else
-      Set(slot - 3, slot - 2, slot - 1, slot)
-
+  /// Set timeout only for the current slot
   pure def setTimeouts(ls: LocalState, slot: Slot): Result =
     { post: ls,
-      output: windowSlots(slot).map(i => (ScheduleEventTimeout(i))) }
+      output: Set(ScheduleEventTimeout(slot)) }
 
-  /// Check if a notarization vote can be cast
+  /// Check if a notarization vote can be cast - simplified
   pure def tryNotar(ls: LocalState, b: Block): { result: Result, success: bool } =
     if (ls.state[b.slot].contains(Voted))
       { result: { post: ls, output: Set() }, success: false }
     else
-      val firstSlot = firstSlotInLeaderWindow(b.slot)
-      if ((firstSlot and ParentReady(b.parent).in(ls.state[b.slot]))
-        or (not(firstSlot) and VotedNotar(b.parent).in(ls.state[b.slot - 1])))
-
+      // Check if parent is ready (notarized) for any slot
+      if (b.slot == 0 or ParentReady(b.parent).in(ls.state[b.slot]))
         // Notarization vote
         val out = Set(Broadcast(NotarVoteMsg({ slot:b.slot, hash: b.hash })))
         val s2 = ls
@@ -319,63 +290,55 @@ module alpenglow {
 
   pure def tryFinal(ls: LocalState, slot: Slot, hash: Blockhash): Result =
     if (BlockNotarized(hash).in(ls.state[slot]) and VotedNotar(hash).in(ls.state[slot])
-        and not(BadWindow.in(ls.state[slot])))
+        and not(BadSlot.in(ls.state[slot])))
       // Finalization vote
       { output: Set(Broadcast(FinalVoteMsg(slot))), post: ls.addObjects(slot, Set(ItsOver)) }
     else
       { output: Set(), post: ls }
 
-  pure def trySkipWindow(ls: LocalState, slot: Slot): Result =
-    // Skip unvoted slots
-    windowSlots(slot).fold({ output: Set(), post: ls }, (s, k) => {
-      if (not(Voted.in(s.post.state[k])))
-        // Skip vote
-        val update = Set(Broadcast(SkipVoteMsg(k)))
-        val s2 = s.post
-          .addObjects(k, Set(Voted, BadWindow))
-          // Won't vote notar after skip
-          .setPendingBlock(k, None)
+  /// Simplified: skip only the current slot
+  pure def trySkip(ls: LocalState, slot: Slot): Result =
+    if (not(Voted.in(ls.state[slot])))
+      // Skip vote
+      val update = Set(Broadcast(SkipVoteMsg(slot)))
+      val s2 = ls
+        .addObjects(slot, Set(Voted, BadSlot))
+        // Won't vote notar after skip
+        .setPendingBlock(slot, None)
 
-        { output: s.output.union(update), post: s2 }
-      else
-        s
-    })
+      { output: update, post: s2 }
+    else
+      { output: Set(), post: ls }
 
   pure def checkPendingBlocks(ls: LocalState): Result =
     // Iterate with increasing slot
-    // (left to right)
     ls.pendingBlocks.foldl({ output: Set(), post: ls }, (res, pendingBlock) =>
       match pendingBlock {
         | Some(b) =>
           val tn = tryNotar(res.post, b)
-          { output: res.output.union(tn.result.output), post: tn.result.post } // TODO implement
+          { output: res.output.union(tn.result.output), post: tn.result.post }
         | None =>
           res
       }
     )
 
-
-  /// Algorithm 1: each upon corresponds to one consensus input
+  /// Algorithm 1: each upon corresponds to one consensus input - simplified
   pure def consensus(ls: LocalState, input: ConsensusInput): Result =
     match input {
       | BlockInput(b) =>
-        val tn = tryNotar(ls, b) // looks like a function but has two side effects: changes state and broadcasts
+        val tn = tryNotar(ls, b)
         if (tn.success)
           val cpb = checkPendingBlocks(tn.result.post)
-          // as tryNotar changed the local state, we pass it to checkPendingBlocks
           { post: cpb.post, output: cpb.output.union(tn.result.output) }
-          // both, tryNotar and checkPendingBlocks have side effects of sending messages. Thus we build the union here.
         else if (not(Voted.in(tn.result.post.state[b.slot])))
           { output: tn.result.output, post: tn.result.post.setPendingBlock(b.slot, Some(b)) }
         else
-          // Even if all if conditions evaluate to false, tryNotar may have side effects and may change the local state
-          { output: tn.result.output, post: tn.result.post } // The state might have changed although all if conditions evaluate to false
+          { output: tn.result.output, post: tn.result.post }
 
       | TimeOutInput(slot) =>
         if (not(Voted.in(ls.state[slot])))
-          trySkipWindow(ls, slot)
+          trySkip(ls, slot)
         else
-          // No change state, no messages sent
           { output: Set(), post: ls }
 
       | BlockNotarizedInput(sh) =>
@@ -385,25 +348,25 @@ module alpenglow {
       | ParentReadyInput(sh) =>
         val s1 = ls.addObjects(sh.slot, Set(ParentReady(sh.hash)))
         val s2 = checkPendingBlocks(s1)
-        // Start time for all slots in this window
+        // Start timer only for this slot
         val s3 = setTimeouts(s2.post, sh.slot)
-        { output: s2.output.union(s3.output), post: s3.post } // TODO
+        { output: s2.output.union(s3.output), post: s3.post }
 
       | SafeToNotarInput(sh) =>
-        val s1 = trySkipWindow(ls, sh.slot)
+        val s1 = trySkip(ls, sh.slot)
         if (not(ItsOver.in(s1.post.state[sh.slot])))
           // Notar-fallback vote
           val output = s1.output.union(Set(Broadcast(NotarFallBackVoteMsg(sh))))
-          { output: output, post: s1.post.addObjects(sh.slot, Set(BadWindow)) }
+          { output: output, post: s1.post.addObjects(sh.slot, Set(BadSlot)) }
         else
           s1
 
       | SafeToSkipInput(slot) =>
-        val s1 = trySkipWindow(ls, slot)
+        val s1 = trySkip(ls, slot)
         if (not(ItsOver.in(s1.post.state[slot])))
           // Skip-fallback vote
           val output = s1.output.union(Set(Broadcast(SkipFallbackVoteMsg(slot))))
-          { output: output, post: addObjects(s1.post, slot, Set(BadWindow)) }
+          { output: output, post: addObjects(s1.post, slot, Set(BadSlot)) }
         else
           s1
     }
