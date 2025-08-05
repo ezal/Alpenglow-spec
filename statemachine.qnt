@@ -59,8 +59,7 @@ module consensus {
           Set(),
           Set(),
           Set(),
-        ],
-        pendingBlocks: [None, None, None, None, None]
+        ]
       }),
       msgBuffer: Set(),
       activeTimeouts: benevolent.mapBy(v => Set(0)),

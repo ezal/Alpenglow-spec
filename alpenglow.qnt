@@ -28,7 +28,6 @@ module alpenglow {
 
   /// Fields are lists indexed by slot
   type LocalState = {
-    pendingBlocks: List[Option[Block]],
     state: List[Set[SlotObject]],
   }
 
@@ -170,8 +169,6 @@ module alpenglow {
   pure def addObjects(ls: LocalState, slot: Slot, obj: Set[SlotObject]): LocalState =
     { ...ls, state: ls.state.replaceAt(slot, ls.state[slot].union(obj)) }
 
-  pure def setPendingBlock(ls: LocalState, slot: Slot, b: Option[Block]): LocalState =
-    { ...ls, pendingBlocks: ls.pendingBlocks.replaceAt(slot, b) }
 
   pure def notarizedBlocks(msgs: Set[NetworkMsg]): Set[BlockReference] =
     msgs
@@ -278,8 +275,6 @@ module alpenglow {
         val out = Set(Broadcast(NotarVoteMsg({ slot:b.slot, hash: b.hash })))
         val s2 = ls
           .addObjects(b.slot, Set(Voted, VotedNotar(b.hash)))
-          // Won't vote notar a second time
-          .setPendingBlock(b.slot, None)
 
         // Maybe vote finalize as well
         val tf = tryFinal(s2, b.slot, b.hash)
@@ -303,37 +298,18 @@ module alpenglow {
       val update = Set(Broadcast(SkipVoteMsg(slot)))
       val s2 = ls
         .addObjects(slot, Set(Voted, BadSlot))
-        // Won't vote notar after skip
-        .setPendingBlock(slot, None)
 
       { output: update, post: s2 }
     else
       { output: Set(), post: ls }
 
-  pure def checkPendingBlocks(ls: LocalState): Result =
-    // Iterate with increasing slot
-    ls.pendingBlocks.foldl({ output: Set(), post: ls }, (res, pendingBlock) =>
-      match pendingBlock {
-        | Some(b) =>
-          val tn = tryNotar(res.post, b)
-          { output: res.output.union(tn.result.output), post: tn.result.post }
-        | None =>
-          res
-      }
-    )
 
   /// Algorithm 1: each upon corresponds to one consensus input - simplified
   pure def consensus(ls: LocalState, input: ConsensusInput): Result =
     match input {
       | BlockInput(b) =>
         val tn = tryNotar(ls, b)
-        if (tn.success)
-          val cpb = checkPendingBlocks(tn.result.post)
-          { post: cpb.post, output: cpb.output.union(tn.result.output) }
-        else if (not(Voted.in(tn.result.post.state[b.slot])))
-          { output: tn.result.output, post: tn.result.post.setPendingBlock(b.slot, Some(b)) }
-        else
-          { output: tn.result.output, post: tn.result.post }
+        tn.result
 
       | TimeOutInput(slot) =>
         if (not(Voted.in(ls.state[slot])))
@@ -347,10 +323,9 @@ module alpenglow {
 
       | ParentReadyInput(sh) =>
         val s1 = ls.addObjects(sh.slot, Set(ParentReady(sh.hash)))
-        val s2 = checkPendingBlocks(s1)
         // Start timer only for this slot
-        val s3 = setTimeouts(s2.post, sh.slot)
-        { output: s2.output.union(s3.output), post: s3.post }
+        val s2 = setTimeouts(s1, sh.slot)
+        s2
 
       | SafeToNotarInput(sh) =>
         val s1 = trySkip(ls, sh.slot)
