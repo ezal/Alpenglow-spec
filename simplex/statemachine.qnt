@@ -35,6 +35,12 @@ module statemachine {
           { ...s, decisions: s.decisions.set(v, Some(value)) }
       })
 
+  action applyInput(id: ProcessID, input: ConsensusInput): bool = all {
+    s' = applyEffect(s, id, processInput(s.localStates.get(id), input, allMessages)),
+    counter' = counter + 1,
+  }
+
+
   //
   //
   // State Machine
@@ -89,22 +95,21 @@ module statemachine {
   }
 
   /// Process receives a proposal
-  action receiveProposal(v: ProcessID, view: View, value: Value, cert: Certificate): bool = all {
-    v.in(correct),
-    view == s.localStates.get(v).view,
-    // leader(view) != v,  // Only non-leaders process proposals // EZ: why!?
+  action receiveProposal(u: ProcessID, view: View, value: Value, cert: Certificate): bool = all {
+    u.in(correct),
+    view == s.localStates.get(u).view, // TODO: not clear if we want this or not!!! It is not explicit in the spec.
     val input = ProposeInput({ view: view, value: value, cert: cert })
-    processInput(v, input)
+    applyInput(u, input)
   }
 
   /// Leader 'u' proposes a value (Rule 1)
-  /// EZ: I don't get it; also, what is the difference with receiveProposal?
+  /// FIXME#2: I think this should be part of moveToNextView
   action leaderProposes(u: ProcessID): bool = all {
     u.in(correct),
     leader(s.localStates.get(u).view) == u,
     not(s.localStates.get(u).voted),
     // Choose value based on highest certificate
-    // EZ: TODO
+    // TODO: check this
     val highestCertValue = certValue(s.localStates.get(u).highestCert)
     val values = if (highestCertValue != BOTTOM) { Set(highestCertValue) } else { proposalValues }
     nondet value = values.oneOf()
@@ -113,39 +118,40 @@ module statemachine {
       value: value,
       cert: s.localStates.get(u).highestCert
     })
-    processInput(u, input)
+    applyInput(u, input)
   }
 
   /// Process Vote time-out
   action voteTimeout(u: ProcessID): bool = all {
     u.in(correct),
     val input = VoteTimeoutInput({ view: s.localStates.get(u).view })
-    processInput(u, input)
+    applyInput(u, input)
   }
 
   /// Process Final time-out
   action finalTimeout(u: ProcessID): bool = all {
     u.in(correct),
     val input = FinalTimeoutInput({ view: s.localStates.get(u).view })
-    processInput(u, input)
+    applyInput(u, input)
   }
 
   /// Process receives a vote and checks for decisions
-  // EZ: I don't get it, this does not make sense
+  // FIXME#1: I don't get it, this does not make sense; to me, we should pick a
+  // message non-deterministically (from allMsg)
   action receiveVote(u: ProcessID): bool = all {
     u.in(correct),
     // Just trigger the final processing logic
     val input = VoteInput({ view: s.localStates.get(u).view, value: 0 })
-    processInput(u, input)
+    applyInput(u, input)
   }
 
   /// Process receives a final message and checks for decisions
-  // EZ: I don't get it, this does not make sense
+  // FIXME#1: I don't get it, this does not make sense
   action receiveFinal(u: ProcessID): bool = all {
     u.in(correct),
     // Just trigger the final processing logic
     val input = FinalInput({ view: s.localStates.get(u).view, value: 0 })
-    processInput(u, input)
+    applyInput(u, input)
   }
 
   /// Move to next view with appropriate certificate
@@ -177,7 +183,7 @@ module statemachine {
       )
     )
 
-    // EZ: not checked further
+    // TODO: not checked further
     val highestCert = certs.fold(NoCert, (best, cert) =>
       if (higherPriority(cert, best)) cert else best
     )
@@ -197,14 +203,6 @@ module statemachine {
     }
   }
 
-  //
-  // auxiliary functions for actions
-  //
-
-  action processInput(id: ProcessID, input: ConsensusInput): bool = all {
-    s' = applyEffect(s, id, consensus(s.localStates.get(id), input, allMessages)),
-    counter' = counter + 1,
-  }
 
   /// Main step action
   action step = all {
@@ -219,7 +217,7 @@ module statemachine {
         finalTimeout(u),
         receiveVote(u),
         receiveFinal(u),
-        moveToNextView(u),
+        moveToNextView(u), // FIXME#2: here we should sent the proposal!
       }
     }
   }
