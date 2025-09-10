@@ -268,6 +268,36 @@ module simplex {
     }
   }
 
+ pure def canIncreaseView(ls: LocalState): bool = {
+    val values = ls.recvMsgs.getValues(ls.view)
+    val certs = values.fold((Set(), Set()), (accCerts, value) =>
+        val votes = countVotes(ls.recvMsgs, ls.view, value).size()
+        val fastCerts = accCerts._1
+        val slowCerts = accCerts._2
+        val newCerts =
+          if (votes >= n - f - p) {
+            val slowCert = SlowCert({ view: ls.view, value: value })
+            if (value != BOTTOM) {
+              // a slow cert on non-bot is also a fast-cert
+              (fastCerts.union(Set(slowCert)), slowCerts.union(Set(slowCert))) }
+            else { (fastCerts.union(Set(slowCert)), slowCerts) }
+          } else if (votes >= n - 2*f - p) {
+            val fastCert = FastCert({ view: ls.view, value: value })
+            (fastCerts.union(Set(fastCert)), slowCerts)
+          } else {
+            (fastCerts, slowCerts)
+          }
+        val finals = countFinals(ls.recvMsgs, ls.view, value).size()
+        if (finals >= n - f - p and value == BOTTOM) {
+          val slowCert = SlowCert({ view: ls.view, value: value })
+          (newCerts._1, newCerts._2.union(Set(slowCert)))
+        } else {
+          newCerts
+        }
+      )
+     certs._1.size() >= 1 and certs._2.size() >= 1
+ }
+
   /// Check if we can form a fast certificate and decide (Rule 4, part 1)
   pure def checkFastDecision(ls: LocalState): Result = {
     if (ls.decided != None) {
