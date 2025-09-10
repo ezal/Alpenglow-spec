@@ -59,6 +59,7 @@ module simplex {
     sentFinal: bool,
     decided: Option[Value],
     highestCert: Certificate,
+    recvMsgs: Set[NetworkMsg],
   }
 
   // TODO: why not MessageInput({msg: Message}) ?
@@ -351,5 +352,6 @@ module simplex {
     sentFinal: false,
     decided: None,
     highestCert: NoCert,
+    recvMsgs: Set()
   }
 }

@@ -86,6 +86,7 @@ module statemachine {
         sentFinal: false,
         decided: None,
         highestCert: NoCert,
+        recvMsgs: Set()
       }),
       msgBuffer: Set(),
       decisions: correct.mapBy(_ => None),
@@ -137,7 +138,8 @@ module statemachine {
   action moveToNextView(u: ProcessID): bool = all {
     u.in(correct),
     s.decisions.get(u) == None,  // Haven't decided yet
-    val currentView = s.localStates.get(u).view
+    val ls = s.localStates.get(u)
+    val currentView = ls.view
     val msgs = allNetworkMsgs
 
     // Find the highest certificate from current or previous views
@@ -175,6 +177,7 @@ module statemachine {
           sentFinal: false,
           decided: None,
           highestCert: highestCert,
+          recvMsgs: ls.recvMsgs,
         })
       },
       counter' = counter + 1,
