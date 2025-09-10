@@ -7,6 +7,20 @@
  * - Slow path: 3 rounds with n-f-p votes when at most f failures
  */
 
+// meaning of TODO:
+// - something needs to be double-checked
+// - something seems to be missing (but can be added later; it should be discovered when checking some properties)
+// - something can improved, mostly for clarity/completeness
+// meaning of FIXME:
+// - something does not make sense and needs to be fixed
+
+// Main observed issues:
+// #1 it is unclear "how the system works", in particular how messages are received
+// #2 Rules 8&1 are actually one rule, and should have a single action
+// #3 we don't have the right checks in Rule 2
+// #4 Rule 7 is missing
+// For the last two items, we should first detect some issues
+
 module simplex {
   import basicSpells.* from "./basicSpells"
 
@@ -41,7 +55,7 @@ module simplex {
     timer: int,
   }
 
-  // EZ: why not MessageInput({msg: Message}) ?
+  // TODO: why not MessageInput({msg: Message}) ?
   type ConsensusInput =
     | ProposeInput({ view: View, value: Value, cert: Certificate })
     | VoteInput({ view: View, value: Value })
@@ -54,7 +68,7 @@ module simplex {
     | Decide(Value)
 
   type Result = {
-    output: Set[ConsensusOutput], // EZ: Set needed?
+    output: Set[ConsensusOutput], // TODO: Set needed?
     post: LocalState,
   }
 
@@ -108,7 +122,7 @@ module simplex {
     leader(view) == proc
   }
 
-  // EZ: naming is a bit misleading: the function does not return an integer...
+  // TODO: naming is a bit misleading: the function does not return an integer...
   /// Count votes from a set of messages
   pure def countVotes(msgs: Set[NetworkMsg], view: View, value: Value): Set[ProcessID] = {
     msgs
@@ -168,7 +182,7 @@ module simplex {
     }
   }
 
-  // EZ: not the right checks, UPDATE!
+  // FIXME#3: not the right checks, UPDATE!
   /// Process a propose message (Rule 2)
   pure def processPropose(ls: LocalState, k: View, x: Value, cert: Certificate): Result = {
     if (k != ls.view or ls.voted) {
@@ -220,7 +234,7 @@ module simplex {
     }
   }
 
-  /// these include BOTTOM
+  /// get all the values in Vote and Final messages in [msgs], including BOTTOM
   pure def getValues(msgs: Set[NetworkMsg], view: View): Set[Value] = {
     msgs
       .filterMap(m => match m.msg {
@@ -246,7 +260,7 @@ module simplex {
 
       match fastDecision {
         | Some(x) => {
-            // EZ: forward commit certificate?
+            // TODO: forward commit certificate?
             output: Set(Decide(x)),
             post: { ...ls, decided: Some(x) }
           }
@@ -298,7 +312,7 @@ module simplex {
 
       match slowDecision {
         | Some(x) => {
-            // EZ: forward certificate?
+            // TODO: forward certificate?
             output: Set(Decide(x)),
             post: { ...ls, decided: Some(x) }
           }
@@ -308,13 +322,14 @@ module simplex {
   }
 
   /// Main consensus function
-  pure def consensus(ls: LocalState, input: ConsensusInput, msgs: Set[NetworkMsg]): Result = {
+  pure def processInput(ls: LocalState, input: ConsensusInput, msgs: Set[NetworkMsg]): Result = {
     match input {
       | ProposeInput(p) => processPropose(ls, p.view, p.value, p.cert)
       | VoteTimeoutInput(t) => processVoteTimeout(ls, t.view)
       | FinalTimeoutInput(t) => processFinalTimeout(ls, t.view)
       | VoteInput(_) => {
           // Process vote by checking if we can decide or send final
+          // FIXME#4: missing Rule 7
           val r1 = checkFastDecision(ls, msgs)
           if (r1.output.size() > 0) r1
           else checkSendFinal(r1.post, msgs)
