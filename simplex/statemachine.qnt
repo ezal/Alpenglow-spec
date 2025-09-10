@@ -36,7 +36,7 @@ module statemachine {
       })
 
   action applyInput(id: ProcessID, input: ConsensusInput): bool = all {
-    s' = applyEffect(s, id, processInput(s.localStates.get(id), input, allNetworkMsgs)),
+    s' = applyEffect(s, id, processInput(s.localStates.get(id), input)),
     counter' = counter + 1,
   }
 
