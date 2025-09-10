@@ -82,6 +82,7 @@ module statemachine {
     s' = {
       localStates: correct.mapBy(_ => {
         view: 0,
+        proposed: false,
         voted: false,
         sentFinal: false,
         decided: None,
@@ -102,87 +103,80 @@ module statemachine {
   }
 
   /// Leader 'u' proposes a value (Rule 1)
-  /// FIXME#2: I think this should be part of moveToNextView
-  // action leaderProposes(u: ProcessID): bool = all {
-  //   u.in(correct),
-  //   leader(s.localStates.get(u).view) == u,
-  //   not(s.localStates.get(u).voted),
-  //   // Choose value based on highest certificate
-  //   // TODO: check this
-  //   val highestCertValue = certValue(s.localStates.get(u).highestCert)
-  //   val values = if (highestCertValue != BOTTOM) { Set(highestCertValue) } else { proposalValues }
-  //   nondet value = values.oneOf()
-  //   val input = ProposeInput({
-  //     view: s.localStates.get(u).view,
-  //     value: value,
-  //     cert: s.localStates.get(u).highestCert
-  //   })
-  //   applyInput(u, input)
-  // }
+  action sendProposal(u: ProcessID): bool = all {
+    u.in(correct),
+    not(s.localStates.get(u).proposed),
+    isLeader(u, s.localStates.get(u).view),
+    // TODO: we could just choose any not-yet-proposed value
+    nondet value = proposalValues.oneOf()
+    val input = ProposeInput(value)
+    applyInput(u, input)
+  }
 
   /// Process Vote time-out
   action voteTimeout(u: ProcessID): bool = all {
     u.in(correct),
-    val input = VoteTimeoutInput({ view: s.localStates.get(u).view })
+    val input = VoteTimeoutInput(s.localStates.get(u).view)
     applyInput(u, input)
   }
 
   /// Process Final time-out
   action finalTimeout(u: ProcessID): bool = all {
     u.in(correct),
-    val input = FinalTimeoutInput({ view: s.localStates.get(u).view })
+    val input = FinalTimeoutInput(s.localStates.get(u).view)
     applyInput(u, input)
   }
 
+  // TODO: remove after checking that this code is not useful
   /// Move to next view with appropriate certificate
-  action moveToNextView(u: ProcessID): bool = all {
-    u.in(correct),
-    s.decisions.get(u) == None,  // Haven't decided yet
-    val ls = s.localStates.get(u)
-    val currentView = ls.view
-    val msgs = allNetworkMsgs
+  // action moveToNextView(u: ProcessID): bool = all {
+  //   u.in(correct),
+  //   s.decisions.get(u) == None,  // Haven't decided yet
+  //   val ls = s.localStates.get(u)
+  //   val currentView = ls.view
+  //   val msgs = allNetworkMsgs
 
-    // Find the highest certificate from current or previous views
-    val values = proposalValues.union(Set(BOTTOM))
-    val certs = values.fold(Set(), (acc, value) =>
-      0.to(currentView).fold(acc, (acc2, view) =>
-        val votes = countVotes(msgs, view, value).size()
-        val res =
-          if (votes >= n - f - p and value != BOTTOM) {
-            acc2.union(Set(SlowCert({ view: view, value: value })))
-          } else if (votes >= n - 2*f - p) {
-            acc2.union(Set(FastCert({ view: view, value: value })))
-          } else {
-            acc2
-          }
-        val finals = countFinals(msgs, view, value).size()
-        if (finals >= n - f - p and value == BOTTOM) {
-          res.union(Set(SlowCert({ view: view, value: value })))
-        } else {
-          res
-        }
-      )
-    )
+  //   // Find the highest certificate from current or previous views
+  //   val values = proposalValues.union(Set(BOTTOM))
+  //   val certs = values.fold(Set(), (acc, value) =>
+  //     0.to(currentView).fold(acc, (acc2, view) =>
+  //       val votes = countVotes(msgs, view, value).size()
+  //       val res =
+  //         if (votes >= n - f - p and value != BOTTOM) {
+  //           acc2.union(Set(SlowCert({ view: view, value: value })))
+  //         } else if (votes >= n - 2*f - p) {
+  //           acc2.union(Set(FastCert({ view: view, value: value })))
+  //         } else {
+  //           acc2
+  //         }
+  //       val finals = countFinals(msgs, view, value).size()
+  //       if (finals >= n - f - p and value == BOTTOM) {
+  //         res.union(Set(SlowCert({ view: view, value: value })))
+  //       } else {
+  //         res
+  //       }
+  //     )
+  //   )
 
-    // TODO: not checked further
-    val highestCert = certs.fold(NoCert, (best, cert) =>
-      if (higherPriority(cert, best)) cert else best
-    )
+  //   // TODO: not checked further
+  //   val highestCert = certs.fold(NoCert, (best, cert) =>
+  //     if (higherPriority(cert, best)) cert else best
+  //   )
 
-    all {
-      s' = { ...s,
-        localStates: s.localStates.set(u, {
-          view: currentView + 1,
-          voted: false,
-          sentFinal: false,
-          decided: None,
-          highestCert: highestCert,
-          recvMsgs: ls.recvMsgs,
-        })
-      },
-      counter' = counter + 1,
-    }
-  }
+  //   all {
+  //     s' = { ...s,
+  //       localStates: s.localStates.set(u, {
+  //         view: currentView + 1,
+  //         voted: false,
+  //         sentFinal: false,
+  //         decided: None,
+  //         highestCert: highestCert,
+  //         recvMsgs: ls.recvMsgs,
+  //       })
+  //     },
+  //     counter' = counter + 1,
+  //   }
+  // }
 
 
   /// Main step action
@@ -191,12 +185,11 @@ module statemachine {
     any {
       nondet u = correct.oneOf()
       any {
-        // leaderProposes(u),
+        sendProposal(u),
         nondet msg = allNetworkMsgs.oneOf()
         receiveMessage(u, msg),
         voteTimeout(u),
-        finalTimeout(u),
-        moveToNextView(u), // FIXME#2: here we should sent the proposal!
+        finalTimeout(u)
       }
     }
   }
