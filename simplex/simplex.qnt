@@ -15,11 +15,12 @@
 // - something does not make sense and needs to be fixed
 
 // Main observed issues:
-// #1 it is unclear "how the system works", in particular how messages are received
+// #1 FIXED it is unclear "how the system works", in particular how messages are received
 // #2 Rules 8&1 are actually one rule, and should have a single action
 // #3 we don't have the right checks in Rule 2
 // #4 Rule 7 is missing
-// For the last two items, we should first detect some issues
+// #5 Pre-requisite for #3 are: #1 and have a better state in which we store (a summary) of received messages
+// For the last three items, we should first detect some issues
 
 module simplex {
   import basicSpells.* from "./basicSpells"
@@ -45,6 +46,12 @@ module simplex {
     | VoteMsg({ view: View, value: Value })
     | FinalMsg({ view: View, value: Value })
 
+  /// Messages on the network carry the sender
+  type NetworkMsg = {
+    sender: ProcessID,
+    msg: Message,
+  }
+
   /// Local state of a process
   type LocalState = {
     view: View,
@@ -57,9 +64,7 @@ module simplex {
 
   // TODO: why not MessageInput({msg: Message}) ?
   type ConsensusInput =
-    | ProposeInput({ view: View, value: Value, cert: Certificate })
-    | VoteInput({ view: View, value: Value })
-    | FinalInput({ view: View, value: Value })
+    | MessageInput(NetworkMsg)
     | VoteTimeoutInput({ view: View })
     | FinalTimeoutInput({ view: View })
 
@@ -70,12 +75,6 @@ module simplex {
   type Result = {
     output: Set[ConsensusOutput], // TODO: Set needed?
     post: LocalState,
-  }
-
-  /// Messages on the network carry the sender
-  type NetworkMsg = {
-    sender: ProcessID,
-    msg: Message,
   }
 
   /// Set of correct processes (non Byzantine)
@@ -321,20 +320,28 @@ module simplex {
     }
   }
 
-  /// Main consensus function
-  pure def processInput(ls: LocalState, input: ConsensusInput, msgs: Set[NetworkMsg]): Result = {
-    match input {
-      | ProposeInput(p) => processPropose(ls, p.view, p.value, p.cert)
-      | VoteTimeoutInput(t) => processVoteTimeout(ls, t.view)
-      | FinalTimeoutInput(t) => processFinalTimeout(ls, t.view)
-      | VoteInput(_) => {
+  // FIXME#5: I'm not sure we should use [msgs] here (or what its meaning is)
+  pure def processMessage(ls: LocalState, networkMsg: NetworkMsg, msgs: Set[NetworkMsg]): Result = {
+    match networkMsg.msg {
+      | ProposeMsg(m) => processPropose(ls, m.view, m.value, m.cert)
+      | VoteMsg(_) => {
           // Process vote by checking if we can decide or send final
           // FIXME#4: missing Rule 7
           val r1 = checkFastDecision(ls, msgs)
           if (r1.output.size() > 0) r1
           else checkSendFinal(r1.post, msgs)
         }
-      | FinalInput(_) => checkSlowDecision(ls, msgs)
+      | FinalMsg(_) => checkSlowDecision(ls, msgs)
+    }
+  }
+
+
+  /// Main consensus function
+  pure def processInput(ls: LocalState, input: ConsensusInput, msgs: Set[NetworkMsg]): Result = {
+    match input {
+      | MessageInput(msg) => processMessage(ls, msg, msgs)
+      | VoteTimeoutInput(t) => processVoteTimeout(ls, t.view)
+      | FinalTimeoutInput(t) => processFinalTimeout(ls, t.view)
     }
   }
 

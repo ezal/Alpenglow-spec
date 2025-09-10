@@ -36,7 +36,7 @@ module statemachine {
       })
 
   action applyInput(id: ProcessID, input: ConsensusInput): bool = all {
-    s' = applyEffect(s, id, processInput(s.localStates.get(id), input, allMessages)),
+    s' = applyEffect(s, id, processInput(s.localStates.get(id), input, allNetworkMsgs)),
     counter' = counter + 1,
   }
 
@@ -73,7 +73,7 @@ module statemachine {
 
   /// all the messages that could be received, i.e., the ones sent by correct processes
   /// and the ones that byzantine processes may send
-  val allMessages = s.msgBuffer.union(byzNetworkMsgs)
+  val allNetworkMsgs = s.msgBuffer.union(byzNetworkMsgs)
 
   /// All possible values that can be proposed
   const proposalValues: Set[Value]
@@ -94,32 +94,31 @@ module statemachine {
     counter' = 0,
   }
 
-  /// Process receives a proposal
-  action receiveProposal(u: ProcessID, view: View, value: Value, cert: Certificate): bool = all {
+  /// Correct process receives a message
+  action receiveMessage(u: ProcessID, msg: NetworkMsg): bool = all {
     u.in(correct),
-    view == s.localStates.get(u).view, // TODO: not clear if we want this or not!!! It is not explicit in the spec.
-    val input = ProposeInput({ view: view, value: value, cert: cert })
+    val input = MessageInput(msg)
     applyInput(u, input)
   }
 
   /// Leader 'u' proposes a value (Rule 1)
   /// FIXME#2: I think this should be part of moveToNextView
-  action leaderProposes(u: ProcessID): bool = all {
-    u.in(correct),
-    leader(s.localStates.get(u).view) == u,
-    not(s.localStates.get(u).voted),
-    // Choose value based on highest certificate
-    // TODO: check this
-    val highestCertValue = certValue(s.localStates.get(u).highestCert)
-    val values = if (highestCertValue != BOTTOM) { Set(highestCertValue) } else { proposalValues }
-    nondet value = values.oneOf()
-    val input = ProposeInput({
-      view: s.localStates.get(u).view,
-      value: value,
-      cert: s.localStates.get(u).highestCert
-    })
-    applyInput(u, input)
-  }
+  // action leaderProposes(u: ProcessID): bool = all {
+  //   u.in(correct),
+  //   leader(s.localStates.get(u).view) == u,
+  //   not(s.localStates.get(u).voted),
+  //   // Choose value based on highest certificate
+  //   // TODO: check this
+  //   val highestCertValue = certValue(s.localStates.get(u).highestCert)
+  //   val values = if (highestCertValue != BOTTOM) { Set(highestCertValue) } else { proposalValues }
+  //   nondet value = values.oneOf()
+  //   val input = ProposeInput({
+  //     view: s.localStates.get(u).view,
+  //     value: value,
+  //     cert: s.localStates.get(u).highestCert
+  //   })
+  //   applyInput(u, input)
+  // }
 
   /// Process Vote time-out
   action voteTimeout(u: ProcessID): bool = all {
@@ -135,31 +134,12 @@ module statemachine {
     applyInput(u, input)
   }
 
-  /// Process receives a vote and checks for decisions
-  // FIXME#1: I don't get it, this does not make sense; to me, we should pick a
-  // message non-deterministically (from allMsg)
-  action receiveVote(u: ProcessID): bool = all {
-    u.in(correct),
-    // Just trigger the final processing logic
-    val input = VoteInput({ view: s.localStates.get(u).view, value: 0 })
-    applyInput(u, input)
-  }
-
-  /// Process receives a final message and checks for decisions
-  // FIXME#1: I don't get it, this does not make sense
-  action receiveFinal(u: ProcessID): bool = all {
-    u.in(correct),
-    // Just trigger the final processing logic
-    val input = FinalInput({ view: s.localStates.get(u).view, value: 0 })
-    applyInput(u, input)
-  }
-
   /// Move to next view with appropriate certificate
   action moveToNextView(u: ProcessID): bool = all {
     u.in(correct),
     s.decisions.get(u) == None,  // Haven't decided yet
     val currentView = s.localStates.get(u).view
-    val msgs = allMessages
+    val msgs = allNetworkMsgs
 
     // Find the highest certificate from current or previous views
     val values = proposalValues.union(Set(BOTTOM))
@@ -210,13 +190,11 @@ module statemachine {
     any {
       nondet u = correct.oneOf()
       any {
-        leaderProposes(u),
-        nondet value = proposalValues.oneOf()
-        receiveProposal(u, s.localStates.get(u).view, value, NoCert),
+        // leaderProposes(u),
+        nondet msg = allNetworkMsgs.oneOf()
+        receiveMessage(u, msg),
         voteTimeout(u),
         finalTimeout(u),
-        receiveVote(u),
-        receiveFinal(u),
         moveToNextView(u), // FIXME#2: here we should sent the proposal!
       }
     }
