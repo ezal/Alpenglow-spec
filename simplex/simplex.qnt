@@ -19,8 +19,9 @@
 // #2 Rules 8&1 are actually one rule, and should have a single action
 // #3 we don't have the right checks in Rule 2
 // #4 Rule 7 is missing
-// #5 Pre-requisite for #3 are: #1 and have a better state in which we store (a summary) of received messages
-// For the last three items, we should first detect some issues
+// #5 FIXED Pre-requisite for #3 are: #1 and have a better state in which we store (a summary) of received messages
+// #6: if the proposal is valid, add it to the received messages
+// For some of the items, we could first detect some issues and then fix them
 
 module simplex {
   import basicSpells.* from "./basicSpells"
@@ -244,16 +245,16 @@ module simplex {
   }
 
   /// Check if we can form a fast certificate and decide (Rule 4, part 1)
-  pure def checkFastDecision(ls: LocalState, msgs: Set[NetworkMsg]): Result = {
+  pure def checkFastDecision(ls: LocalState): Result = {
     if (ls.decided != None) {
       // Already decided
       { output: Set(), post: ls }
     } else {
       // Check all values for fast certificate (n-p votes)
-      val values = msgs.getValues(ls.view)
+      val values = ls.recvMsgs.getValues(ls.view)
       val fastDecision = values.fold(None, (acc, x) =>
         if (acc != None) acc
-        else if (countVotes(msgs, ls.view, x).size() >= n - p) Some(x)
+        else if (countVotes(ls.recvMsgs, ls.view, x).size() >= n - p) Some(x)
         else None
       )
 
@@ -269,16 +270,16 @@ module simplex {
   }
 
   /// Check if we have enough votes to send final message (Rule 3)
-  pure def checkSendFinal(ls: LocalState, msgs: Set[NetworkMsg]): Result = {
+  pure def checkSendFinal(ls: LocalState): Result = {
     if (ls.sentFinal) {
       // Already sent final
       { output: Set(), post: ls }
     } else {
       // Check all values for slow certificate (n-f-p votes)
-      val values = msgs.getValues(ls.view).exclude(Set(BOTTOM))
+      val values = ls.recvMsgs.getValues(ls.view).exclude(Set(BOTTOM))
       val canSendFinal = values.fold(None, (acc, x) =>
         if (acc != None) acc
-        else if (countVotes(msgs, ls.view, x).size() >= n - f - p) Some(x)
+        else if (countVotes(ls.recvMsgs, ls.view, x).size() >= n - f - p) Some(x)
         else None
       )
 
@@ -293,17 +294,17 @@ module simplex {
   }
 
   /// Check if we can decide based on final messages (Rule 4, part 2)
-  pure def checkSlowDecision(ls: LocalState, msgs: Set[NetworkMsg]): Result = {
+  pure def checkSlowDecision(ls: LocalState): Result = {
     if (ls.decided != None) {
       // Already decided
       { output: Set(), post: ls }
     } else {
       // Check for n-f-p final messages
-      val values = msgs.getValues(ls.view).exclude(Set(BOTTOM))
+      val values = ls.recvMsgs.getValues(ls.view).exclude(Set(BOTTOM))
       val slowDecision = values.fold(None, (acc, x) =>
         if (acc != None) acc
         else {
-          val finalCount = countFinals(msgs, ls.view, x).size()
+          val finalCount = countFinals(ls.recvMsgs, ls.view, x).size()
           if (finalCount >= n - f - p) Some(x)
           else None
         }
@@ -320,26 +321,29 @@ module simplex {
     }
   }
 
-  // FIXME#5: I'm not sure we should use [msgs] here (or what its meaning is)
-  pure def processMessage(ls: LocalState, networkMsg: NetworkMsg, msgs: Set[NetworkMsg]): Result = {
+  pure def processMessage(ls: LocalState, networkMsg: NetworkMsg): Result = {
     match networkMsg.msg {
-      | ProposeMsg(m) => processPropose(ls, m.view, m.value, m.cert)
-      | VoteMsg(_) => {
+      | ProposeMsg(m) =>
+          // FIXME#6: if the proposal is valid, add it to the received messages
+          processPropose(ls, m.view, m.value, m.cert)
+      | VoteMsg(m) => {
+          val new_ls = { ...ls, recvMsgs: ls.recvMsgs.union(Set(networkMsg)) }
           // Process vote by checking if we can decide or send final
           // FIXME#4: missing Rule 7
-          val r1 = checkFastDecision(ls, msgs)
-          if (r1.output.size() > 0) r1
-          else checkSendFinal(r1.post, msgs)
+          val res = checkFastDecision(new_ls)
+          if (res.output.size() > 0) res
+          else checkSendFinal(res.post)
         }
-      | FinalMsg(_) => checkSlowDecision(ls, msgs)
+      | FinalMsg(m) =>
+          val new_ls = { ...ls, recvMsgs: ls.recvMsgs.union(Set(networkMsg)) }
+          checkSlowDecision(new_ls)
     }
   }
 
-
   /// Main consensus function
-  pure def processInput(ls: LocalState, input: ConsensusInput, msgs: Set[NetworkMsg]): Result = {
+  pure def processInput(ls: LocalState, input: ConsensusInput): Result = {
     match input {
-      | MessageInput(msg) => processMessage(ls, msg, msgs)
+      | MessageInput(msg) => processMessage(ls, msg)
       | VoteTimeoutInput(t) => processVoteTimeout(ls, t.view)
       | FinalTimeoutInput(t) => processFinalTimeout(ls, t.view)
     }
