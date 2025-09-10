@@ -244,6 +244,30 @@ module simplex {
       })
   }
 
+  /// Check if we have enough votes to send final message (Rule 3)
+  pure def checkSendFinal(ls: LocalState): Result = {
+    if (ls.sentFinal) {
+      // Already sent final
+      { output: Set(), post: ls }
+    } else {
+      // Check all values for slow certificate (n-f-p votes)
+      val values = ls.recvMsgs.getValues(ls.view).exclude(Set(BOTTOM))
+      val canSendFinal = values.fold(None, (acc, x) =>
+        if (acc != None) acc
+        else if (countVotes(ls.recvMsgs, ls.view, x).size() >= n - f - p) Some(x)
+        else None
+      )
+
+      match canSendFinal {
+        | Some(x) => {
+            output: Set(Broadcast(FinalMsg({ view: ls.view, value: x }))),
+            post: { ...ls, sentFinal: true }
+          }
+        | None => { output: Set(), post: ls }
+      }
+    }
+  }
+
   /// Check if we can form a fast certificate and decide (Rule 4, part 1)
   pure def checkFastDecision(ls: LocalState): Result = {
     if (ls.decided != None) {
@@ -263,30 +287,6 @@ module simplex {
             // TODO: forward commit certificate?
             output: Set(Decide(x)),
             post: { ...ls, decided: Some(x) }
-          }
-        | None => { output: Set(), post: ls }
-      }
-    }
-  }
-
-  /// Check if we have enough votes to send final message (Rule 3)
-  pure def checkSendFinal(ls: LocalState): Result = {
-    if (ls.sentFinal) {
-      // Already sent final
-      { output: Set(), post: ls }
-    } else {
-      // Check all values for slow certificate (n-f-p votes)
-      val values = ls.recvMsgs.getValues(ls.view).exclude(Set(BOTTOM))
-      val canSendFinal = values.fold(None, (acc, x) =>
-        if (acc != None) acc
-        else if (countVotes(ls.recvMsgs, ls.view, x).size() >= n - f - p) Some(x)
-        else None
-      )
-
-      match canSendFinal {
-        | Some(x) => {
-            output: Set(Broadcast(FinalMsg({ view: ls.view, value: x }))),
-            post: { ...ls, sentFinal: true }
           }
         | None => { output: Set(), post: ls }
       }
