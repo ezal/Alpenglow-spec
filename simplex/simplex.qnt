@@ -16,11 +16,16 @@
 
 // Main observed issues:
 // #1 FIXED it is unclear "how the system works", in particular how messages are received
-// #2 Rules 8&1 are actually one rule, and should have a single action
-// #3 we don't have the right checks in Rule 2
+// #2 FIXED Rules 8&1 are actually one rule, and should have a single action
+//    - I couldn't put it into a single action, because I don't know how to pick
+//    a value in a 'pure def'. (Normally, a party advances in view only when it
+//    receives a new message, so sending a proposal is normally part of
+//    processMessage)
+// #3 We don't have the right checks in Rule 2
 // #4 Rule 7 is missing
 // #5 FIXED Pre-requisite for #3 are: #1 and have a better state in which we store (a summary) of received messages
-// #6: if the proposal is valid, add it to the received messages
+// #6: If the proposal is valid, add it to the received messages
+// #7: Properly update the local state, including highestCert (code in [moveToNextView] may be useful)
 // For some of the items, we could first detect some issues and then fix them
 
 module simplex {
@@ -56,6 +61,7 @@ module simplex {
   /// Local state of a process
   type LocalState = {
     view: View,
+    proposed: bool,
     voted: bool,
     sentFinal: bool,
     decided: Option[Value],
@@ -63,11 +69,11 @@ module simplex {
     recvMsgs: Set[NetworkMsg],
   }
 
-  // TODO: why not MessageInput({msg: Message}) ?
   type ConsensusInput =
     | MessageInput(NetworkMsg)
-    | VoteTimeoutInput({ view: View })
-    | FinalTimeoutInput({ view: View })
+    | VoteTimeoutInput(View)
+    | FinalTimeoutInput(View)
+    | ProposeInput(Value)
 
   type ConsensusOutput =
     | Broadcast(Message)
@@ -234,7 +240,7 @@ module simplex {
     }
   }
 
-  /// get all the values in Vote and Final messages in [msgs], including BOTTOM
+  /// Get all the values in Vote and Final messages in [msgs], including BOTTOM
   pure def getValues(msgs: Set[NetworkMsg], view: View): Set[Value] = {
     msgs
       .filterMap(m => match m.msg {
@@ -244,8 +250,8 @@ module simplex {
       })
   }
 
-  /// Check if we have enough votes to send final message (Rule 3)
-  pure def checkSendFinal(ls: LocalState): Result = {
+  /// Send Final message if we have enough votes to (Rule 3)
+  pure def trySendFinal(ls: LocalState): Result = {
     if (ls.sentFinal) {
       // Already sent final
       { output: Set(), post: ls }
@@ -351,22 +357,53 @@ module simplex {
     }
   }
 
+  pure def maybeIncreaseView(ls: LocalState): LocalState = {
+    if (canIncreaseView(ls))
+      {...ls, view: ls.view + 1, voted: false, sentFinal: false}
+    else
+      ls
+  }
+
+  /// Propose an existing value if there is an certificate for it, otherwise propose [value] (Rule 1)
+  pure def propose(ls: LocalState, newValue: Value): Result = {
+    val value = certValue(ls.highestCert)
+    val proposedValue = if (value == BOTTOM) { newValue } else value
+    val msg = ProposeMsg({ view: ls.view, value: proposedValue, cert: ls.highestCert })
+    val newLS = {...ls, proposed: true}
+    {output: Set(Broadcast(msg)), post: newLS}
+  }
+
+  pure def composeResult(res1: Result, res2: Result): Result =
+    { output: res1.output.union(res2.output), post: res2.post }
+
+  // FIXME#7 properly update the local state, including highestCert
   pure def processMessage(ls: LocalState, networkMsg: NetworkMsg): Result = {
     match networkMsg.msg {
       | ProposeMsg(m) =>
           // FIXME#6: if the proposal is valid, add it to the received messages
           processPropose(ls, m.view, m.value, m.cert)
       | VoteMsg(m) => {
-          val new_ls = { ...ls, recvMsgs: ls.recvMsgs.union(Set(networkMsg)) }
+          val ls2 = { ...ls, recvMsgs: ls.recvMsgs.union(Set(networkMsg)) }
           // Process vote by checking if we can decide or send final
           // FIXME#4: missing Rule 7
-          val res = checkFastDecision(new_ls)
+          // TODO: that's hard to read, improve!
+          val res = checkFastDecision(ls2)
           if (res.output.size() > 0) res
-          else checkSendFinal(res.post)
+          else {
+            val res2 = trySendFinal(res.post)
+            val res3 = composeResult(res, res2)
+            val ls3 = maybeIncreaseView(res3.post)
+            {...res3, post: ls3}
+          }
         }
       | FinalMsg(m) =>
-          val new_ls = { ...ls, recvMsgs: ls.recvMsgs.union(Set(networkMsg)) }
-          checkSlowDecision(new_ls)
+          val ls2 = { ...ls, recvMsgs: ls.recvMsgs.union(Set(networkMsg)) }
+          val res = checkSlowDecision(ls)
+          if (res.output.size() > 0) res
+          else {
+            val ls3 = maybeIncreaseView(res.post)
+            {...res, post: ls3}
+          }
     }
   }
 
@@ -374,14 +411,16 @@ module simplex {
   pure def processInput(ls: LocalState, input: ConsensusInput): Result = {
     match input {
       | MessageInput(msg) => processMessage(ls, msg)
-      | VoteTimeoutInput(t) => processVoteTimeout(ls, t.view)
-      | FinalTimeoutInput(t) => processFinalTimeout(ls, t.view)
+      | VoteTimeoutInput(view) => processVoteTimeout(ls, view)
+      | FinalTimeoutInput(view) => processFinalTimeout(ls, view)
+      | ProposeInput(value) => propose(ls, value)
     }
   }
 
   /// Initial local state
   pure def initLocalState(): LocalState = {
     view: 0,
+    proposed: false,
     voted: false,
     sentFinal: false,
     decided: None,
