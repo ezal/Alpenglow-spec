@@ -86,7 +86,6 @@ module statemachine {
         sentFinal: false,
         decided: None,
         highestCert: NoCert,
-        timer: 0,
       }),
       msgBuffer: Set(),
       decisions: correct.mapBy(_ => None),
@@ -176,7 +175,6 @@ module statemachine {
           sentFinal: false,
           decided: None,
           highestCert: highestCert,
-          timer: 0,
         })
       },
       counter' = counter + 1,

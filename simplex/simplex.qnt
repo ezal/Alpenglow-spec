@@ -59,7 +59,6 @@ module simplex {
     sentFinal: bool,
     decided: Option[Value],
     highestCert: Certificate,
-    timer: int,
   }
 
   // TODO: why not MessageInput({msg: Message}) ?
@@ -352,6 +351,5 @@ module simplex {
     sentFinal: false,
     decided: None,
     highestCert: NoCert,
-    timer: 0,
   }
 }
