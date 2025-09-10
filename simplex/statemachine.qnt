@@ -9,7 +9,7 @@ module statemachine {
   export simplex.*
 
   /// This is all the information of the global state
-  type Environment = {
+  type System = {
     // The local state of each process
     localStates: ProcessID -> LocalState,
 
@@ -17,22 +17,22 @@ module statemachine {
     msgBuffer: Set[NetworkMsg],
 
     // Decided values
-    // This could be obtained from the localStates...
+    // TODO: this could also be directly obtained from the localStates...
     decisions: ProcessID -> Option[Value],
   }
 
   /// Interface consensus algorithm / state machine: how consensus algorithm effects the environment
-  pure def applyEffect(env: Environment, v: ProcessID, res: Result): Environment =
+  pure def applyEffect(sys: System, pid: ProcessID, res: Result): System =
     // update the state of the process
-    val new = { ... env, localStates: env.localStates.set(v, res.post) }
+    val new = { ... sys, localStates: sys.localStates.set(pid, res.post) }
     // update the message buffer and decisions
-    res.output.fold(new, (s, o) =>
-      match o {
+    res.output.fold(new, (acc_sys, output) =>
+      match output {
         | Broadcast(msg) =>
-          val nm = { sender: v, msg: msg }
-          { ...s, msgBuffer: s.msgBuffer.union(Set(nm)) }
+          val newMsg = { sender: pid, msg: msg }
+          { ...acc_sys, msgBuffer: acc_sys.msgBuffer.union(Set(newMsg)) }
         | Decide(value) =>
-          { ...s, decisions: s.decisions.set(v, Some(value)) }
+          { ...acc_sys, decisions: acc_sys.decisions.set(pid, Some(value)) }
       })
 
   action applyInput(id: ProcessID, input: ConsensusInput): bool = all {
@@ -47,7 +47,7 @@ module statemachine {
   //
   //
 
-  var s: Environment
+  var s: System
 
   var counter: int // Required for bounded model checking
 
