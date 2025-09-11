@@ -47,10 +47,15 @@ module simplex {
     | NoCert
 
   /// Message types
-  type Message =
-    | ProposeMsg({ view: View, value: Value, cert: Certificate })
+  type CertMessage =
     | VoteMsg({ view: View, value: Value })
     | FinalMsg({ view: View, value: Value })
+
+  /// Note: this CertMessage type could be avoided if we'd had support for
+  /// recursive types (AFAIU, recursive types are not supported)
+  type Message =
+    | ProposeMsg({ view: View, value: Value, cert: Set[(ProcessID, CertMessage)] })
+    | CertMsg(CertMessage)
 
   /// Messages on the network carry the sender
   type NetworkMsg = {
@@ -80,7 +85,7 @@ module simplex {
     | Decide(Value)
 
   type Result = {
-    output: Set[ConsensusOutput], // TODO: Set needed?
+    output: Set[ConsensusOutput],
     post: LocalState,
   }
 
@@ -128,32 +133,46 @@ module simplex {
     leader(view) == proc
   }
 
-  // TODO: naming is a bit misleading: the function does not return an integer...
-  /// Count votes from a set of messages
-  pure def countVotes(msgs: Set[NetworkMsg], view: View, value: Value): Set[ProcessID] = {
+  /// Return the Vote messages for a given view and value from a set of messages
+  pure def getVotes(msgs: Set[NetworkMsg], view: View, value: Value): Set[NetworkMsg] = {
     msgs
       .filter(m => match m.msg {
-        | VoteMsg(vote) => vote.view == view and vote.value == value
+        | CertMsg(msg) =>
+            match msg {
+              | VoteMsg(vote) => vote.view == view and vote.value == value
+              | _ => false
+            }
         | _ => false
       })
-      .map(m => m.sender)
   }
 
-  /// Count final messages from a set of messages
-  pure def countFinals(msgs: Set[NetworkMsg], view: View, value: Value): Set[ProcessID] = {
+  /// Return the senders of Vote messages for a given view and value from a set of messages
+  pure def getVoteSenders(msgs: Set[NetworkMsg], view: View, value: Value): Set[ProcessID] =
+    getVotes(msgs,view,value).map(m => m.sender)
+
+
+  /// Return the Final messages for a given view and value from a set of messages
+  pure def getFinals(msgs: Set[NetworkMsg], view: View, value: Value): Set[NetworkMsg] = {
     msgs
       .filter(m => match m.msg {
-        | FinalMsg(final) => final.view == view and final.value == value
+        | CertMsg(msg) =>
+            match msg {
+              | FinalMsg(final) => final.view == view and final.value == value
+              | _ => false
+            }
         | _ => false
       })
-      .map(m => m.sender)
   }
+
+  /// Return the senders of Final messages for a given view and value from a set of messages
+  pure def getFinalSenders(msgs: Set[NetworkMsg], view: View, value: Value): Set[ProcessID] =
+    getFinals(msgs,view,value).map(m => m.sender)
 
   /// Check if a certificate is valid
   pure def isValidCert(cert: Certificate, msgs: Set[NetworkMsg]): bool = {
     match cert {
-      | FastCert(c) => countVotes(msgs, c.view, c.value).size() >= n - 2*f - p
-      | SlowCert(c) => countVotes(msgs, c.view, c.value).size() >= n - f - p
+      | FastCert(c) => getVoteSenders(msgs, c.view, c.value).size() >= n - 2*f - p
+      | SlowCert(c) => getVoteSenders(msgs, c.view, c.value).size() >= n - f - p
       | NoCert => true
     }
   }
@@ -188,24 +207,45 @@ module simplex {
     }
   }
 
+  /// Here we assume that certMsgs represent a valid cert
+  // TODO: can we add asserts?
+  pure def fromCertMsgs(certMsgs: Set[(ProcessID, CertMessage)]): Certificate = {
+    val count = certMsgs.size()
+    val msg = certMsgs.chooseSome()._2
+    val cert = match msg {
+      | VoteMsg(m) =>
+          if (count >= n-f-p) { SlowCert({view:m.view, value:m.value}) }
+          else if (count >= n-2*f-p) { FastCert({view:m.view, value:m.value}) }
+          else NoCert
+      | FinalMsg(m) =>
+          if (count >= n-f-p and m.value == BOTTOM) { SlowCert({view:m.view, value:m.value}) }
+          else NoCert }
+    // assert(cert != NoCert)
+    cert
+  }
+
   // FIXME#3: not the right checks, UPDATE!
   /// Process a propose message (Rule 2)
-  pure def processPropose(ls: LocalState, k: View, x: Value, cert: Certificate): Result = {
+  pure def processPropose(ls: LocalState, k: View, x: Value, certMsgs: Set[(ProcessID, CertMessage)]): Result = {
     if (k != ls.view or ls.voted) {
       // Wrong view or already voted
       { output: Set(), post: ls }
-    } else if (not(higherPriority(cert, ls.highestCert))) {
-      // Certificate not high priority enough
-      { output: Set(), post: ls }
     } else {
-      // Valid proposal, vote for it
-      val newState = { ...ls,
-        voted: true,
-        highestCert: cert
-      }
-      {
-        output: Set(Broadcast(VoteMsg({ view: k, value: x }))),
-        post: newState
+      // TODO: check is certificate is valid
+      val cert = fromCertMsgs(certMsgs)
+      if (not(higherPriority(cert, ls.highestCert))) {
+        // Certificate not high priority enough
+        { output: Set(), post: ls }
+      } else {
+        // Valid proposal, vote for it
+        val newState = { ...ls,
+          voted: true,
+          highestCert: cert
+        }
+        {
+          output: Set(Broadcast(CertMsg(VoteMsg({ view: k, value: x })))),
+          post: newState
+        }
       }
     }
   }
@@ -219,7 +259,7 @@ module simplex {
       // Timeout, vote for bottom
       val newState = { ...ls, voted: true }
       {
-        output: Set(Broadcast(VoteMsg({ view: k, value: BOTTOM }))),
+        output: Set(Broadcast(CertMsg(VoteMsg({ view: k, value: BOTTOM })))),
         post: newState
       }
     }
@@ -234,7 +274,7 @@ module simplex {
       // Timeout, vote for bottom
       val newState = { ...ls, sentFinal: true }
       {
-        output: Set(Broadcast(FinalMsg({ view: k, value: BOTTOM }))),
+        output: Set(Broadcast(CertMsg(FinalMsg({ view: k, value: BOTTOM })))),
         post: newState
       }
     }
@@ -244,8 +284,11 @@ module simplex {
   pure def getValues(msgs: Set[NetworkMsg], view: View): Set[Value] = {
     msgs
       .filterMap(m => match m.msg {
-        | VoteMsg(vote) => if (vote.view == view) { Some(vote.value) } else None
-        | FinalMsg(vote) => if (vote.view == view) { Some(vote.value) } else None
+        | CertMsg(msg) =>
+            match msg {
+              | VoteMsg(vote) => if (vote.view == view) { Some(vote.value) } else None
+              | FinalMsg(vote) => if (vote.view == view) { Some(vote.value) } else None
+            }
         | _ => None
       })
   }
@@ -260,13 +303,13 @@ module simplex {
       val values = ls.recvMsgs.getValues(ls.view).exclude(Set(BOTTOM))
       val canSendFinal = values.fold(None, (acc, x) =>
         if (acc != None) acc
-        else if (countVotes(ls.recvMsgs, ls.view, x).size() >= n - f - p) Some(x)
+        else if (getVoteSenders(ls.recvMsgs, ls.view, x).size() >= n - f - p) Some(x)
         else None
       )
 
       match canSendFinal {
         | Some(x) => {
-            output: Set(Broadcast(FinalMsg({ view: ls.view, value: x }))),
+            output: Set(Broadcast(CertMsg(FinalMsg({ view: ls.view, value: x })))),
             post: { ...ls, sentFinal: true }
           }
         | None => { output: Set(), post: ls }
@@ -277,7 +320,7 @@ module simplex {
  pure def canIncreaseView(ls: LocalState): bool = {
     val values = ls.recvMsgs.getValues(ls.view)
     val certs = values.fold((Set(), Set()), (accCerts, value) =>
-        val votes = countVotes(ls.recvMsgs, ls.view, value).size()
+        val votes = getVoteSenders(ls.recvMsgs, ls.view, value).size()
         val fastCerts = accCerts._1
         val slowCerts = accCerts._2
         val newCerts =
@@ -293,7 +336,7 @@ module simplex {
           } else {
             (fastCerts, slowCerts)
           }
-        val finals = countFinals(ls.recvMsgs, ls.view, value).size()
+        val finals = getFinalSenders(ls.recvMsgs, ls.view, value).size()
         if (finals >= n - f - p and value == BOTTOM) {
           val slowCert = SlowCert({ view: ls.view, value: value })
           (newCerts._1, newCerts._2.union(Set(slowCert)))
@@ -314,7 +357,7 @@ module simplex {
       val values = ls.recvMsgs.getValues(ls.view)
       val fastDecision = values.fold(None, (acc, x) =>
         if (acc != None) acc
-        else if (countVotes(ls.recvMsgs, ls.view, x).size() >= n - p) Some(x)
+        else if (getVoteSenders(ls.recvMsgs, ls.view, x).size() >= n - p) Some(x)
         else None
       )
 
@@ -340,7 +383,7 @@ module simplex {
       val slowDecision = values.fold(None, (acc, x) =>
         if (acc != None) acc
         else {
-          val finalCount = countFinals(ls.recvMsgs, ls.view, x).size()
+          val finalCount = getFinalSenders(ls.recvMsgs, ls.view, x).size()
           if (finalCount >= n - f - p) Some(x)
           else None
         }
@@ -366,9 +409,23 @@ module simplex {
 
   /// Propose an existing value if there is an certificate for it, otherwise propose [value] (Rule 1)
   pure def propose(ls: LocalState, newValue: Value): Result = {
-    val value = certValue(ls.highestCert)
-    val proposedValue = if (value == BOTTOM) { newValue } else value
-    val msg = ProposeMsg({ view: ls.view, value: proposedValue, cert: ls.highestCert })
+    val proposedValue = match ls.highestCert {
+      | FastCert(c) => c.value
+      | SlowCert(c) => c.value
+      | NoCert => newValue
+    }
+    val certMsgs = match ls.highestCert {
+      | FastCert(c) => ls.recvMsgs.getVotes(c.view,c.value)
+      | SlowCert(c) =>
+          if (c.value == BOTTOM)
+            ls.recvMsgs.getFinals(c.view,c.value)
+          else
+            ls.recvMsgs.getVotes(c.view,c.value)
+      | NoCert => Set()
+    }.filterMap(m => match m.msg {
+      | CertMsg(msg) => Some((m.sender, msg))
+      | _ => None })
+    val msg = ProposeMsg({ view: ls.view, value: proposedValue, cert: certMsgs })
     val newLS = {...ls, proposed: true}
     {output: Set(Broadcast(msg)), post: newLS}
   }
@@ -382,28 +439,33 @@ module simplex {
       | ProposeMsg(m) =>
           // FIXME#6: if the proposal is valid, add it to the received messages
           processPropose(ls, m.view, m.value, m.cert)
-      | VoteMsg(m) => {
-          val ls2 = { ...ls, recvMsgs: ls.recvMsgs.union(Set(networkMsg)) }
-          // Process vote by checking if we can decide or send final
-          // FIXME#4: missing Rule 7
-          // TODO: that's hard to read, improve!
-          val res = checkFastDecision(ls2)
-          if (res.output.size() > 0) res
-          else {
-            val res2 = trySendFinal(res.post)
-            val res3 = composeResult(res, res2)
-            val ls3 = maybeIncreaseView(res3.post)
-            {...res3, post: ls3}
-          }
-        }
-      | FinalMsg(m) =>
-          val ls2 = { ...ls, recvMsgs: ls.recvMsgs.union(Set(networkMsg)) }
-          val res = checkSlowDecision(ls)
-          if (res.output.size() > 0) res
-          else {
-            val ls3 = maybeIncreaseView(res.post)
-            {...res, post: ls3}
-          }
+      | CertMsg(msg) => {
+          match msg {
+            | VoteMsg(m) => {
+                val ls2 = { ...ls, recvMsgs: ls.recvMsgs.union(Set(networkMsg)) }
+                // Process vote by checking if we can decide or send final
+                // FIXME#4: missing Rule 7
+                // TODO: that's hard to read, improve!
+                val res = checkFastDecision(ls2)
+                if (res.output.size() > 0) res
+                else {
+                  val res2 = trySendFinal(res.post)
+                  val res3 = composeResult(res, res2)
+                  val ls3 = maybeIncreaseView(res3.post)
+                  {...res3, post: ls3}
+                }
+              }
+            | FinalMsg(m) => {
+                val ls2 = { ...ls, recvMsgs: ls.recvMsgs.union(Set(networkMsg)) }
+                val res = checkSlowDecision(ls2)
+                if (res.output.size() > 0) res
+                else {
+                  val ls3 = maybeIncreaseView(res.post)
+                  {...res, post: ls3}
+                }
+              }
+            }
+      }
     }
   }
 
