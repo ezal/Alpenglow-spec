@@ -87,7 +87,7 @@ module statemachine {
         sentFinal: false,
         decided: None,
         highestCert: NoCert,
-        recvMsgs: Set()
+        seenMsgs: Set()
       }),
       msgBuffer: Set(),
       decisions: correct.mapBy(_ => None),
@@ -171,7 +171,7 @@ module statemachine {
   //         sentFinal: false,
   //         decided: None,
   //         highestCert: highestCert,
-  //         recvMsgs: ls.recvMsgs,
+  //         seenMsgs: ls.seenMsgs,
   //       })
   //     },
   //     counter' = counter + 1,
