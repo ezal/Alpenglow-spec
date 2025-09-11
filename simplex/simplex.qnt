@@ -117,10 +117,10 @@ module simplex {
 
   pure val n = voting_power(processes)
 
-  /// Maximum Byzantine failures
-  pure val f = voting_power(byzantine)
+  /// Slow-path parameter; also maximum number of Byzantine failures
+  const f: int
 
-  /// Fast path parameter
+  /// Fast-path parameter
   const p: int
 
   /// Constraints on parameters
@@ -129,6 +129,7 @@ module simplex {
     f >= 0,
     p >= 0,
     p <= f,
+    voting_power(byzantine) <= f,
   }
 
   /// Leader selection function: simple round-robin leader selection
