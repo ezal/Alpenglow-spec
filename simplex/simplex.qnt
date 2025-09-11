@@ -222,40 +222,55 @@ module simplex {
   // be seen as a certificate validity check.
   pure def certFromCertMsgs(certMsgs: Set[NetworkCertMsg]): Option[Certificate] = {
     val count = certMsgs.size()
-    val someMsg = certMsgs.chooseSome()._2
-    match someMsg {
-      | VoteMsg(m) =>
-          val same = certMsgs.forall(msg =>
-            match msg._2 {
-              | VoteMsg(m2) => m.view == m2.view and m.value == m2.value
-              | _ => false
-            })
-          if (not(same))
-            None
-          else {
-            if (count >= n-f-p) {
-              Some(SlowCert({view:m.view, value:m.value}))
+    if (count < 1)
+      None
+    else {
+      // The following is not supported by the Runtime
+      //   val someMsg = certMsgs.chooseSome()._2
+      // so we use a more complicated way:
+      val someMsgOpt = certMsgs.fold(None, (acc, msg) =>
+        if (acc == None) Some(msg._2) else acc)
+
+      // TODO: put this into basicSpells.qnt as getOrElse
+      val someMsg = match someMsgOpt {
+        | Some(x) => x
+        | None => VoteMsg({view: 0, value: 0})  // unreachable
+      }
+
+      match someMsg {
+        | VoteMsg(m) =>
+            val same = certMsgs.forall(msg =>
+              match msg._2 {
+                | VoteMsg(m2) => m.view == m2.view and m.value == m2.value
+                | _ => false
+              })
+            if (not(same))
+              None
+            else {
+              if (count >= n-f-p) {
+                Some(SlowCert({view:m.view, value:m.value}))
+              }
+              else if (count >= n-2*f-p) {
+                Some(FastCert({view:m.view, value:m.value}))
+              }
+              else None
             }
-            else if (count >= n-2*f-p) {
-              Some(FastCert({view:m.view, value:m.value}))
-            }
-            else None
-          }
-      | FinalMsg(m) =>
-          val same = certMsgs.forall(msg =>
-            match msg._2 {
-              | FinalMsg(m2) => m.view == m2.view and m.value == m2.value
-              | _ => false
-            })
-          if (not(same))
-            None
-          else {
-            if (count >= n-f-p and m.value == BOTTOM) {
-              Some(SlowCert({view:m.view, value:m.value}))
-            }
-            else
-              None }
-          }
+        | FinalMsg(m) =>
+            val same = certMsgs.forall(msg =>
+              match msg._2 {
+                | FinalMsg(m2) => m.view == m2.view and m.value == m2.value
+                | _ => false
+              })
+            if (not(same))
+              None
+            else {
+              if (count >= n-f-p and m.value == BOTTOM) {
+                Some(SlowCert({view:m.view, value:m.value}))
+              }
+              else
+                None }
+        }
+     }
   }
 
   // FIXME#3: not the right checks, UPDATE!
