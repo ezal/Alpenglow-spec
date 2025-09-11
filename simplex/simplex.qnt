@@ -80,6 +80,8 @@ module simplex {
     decided: Option[Value],
     highestCert: Certificate,
     seenMsgs: Set[NetworkMsg],
+    // TODO: use NetworkCertMsg for clarity, because this set does not include
+    // ProposeMsg (though it includes the messages in the attached certificate)
   }
 
   type ConsensusInput =
