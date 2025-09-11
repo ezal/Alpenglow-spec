@@ -7,26 +7,31 @@
  * - Slow path: 3 rounds with n-f-p votes when at most f failures
  */
 
-// meaning of TODO:
-// - something needs to be double-checked
-// - something seems to be missing (but can be added later; it should be discovered when checking some properties)
-// - something can improved, mostly for clarity/completeness
-// meaning of FIXME:
-// - something does not make sense and needs to be fixed
+/****************************************************
+Meaning of TODO:
+- something needs to be double-checked
+- something seems to be missing (but can be added later; it should be discovered when checking some properties)
+- something can improved, mostly for clarity/completeness
 
-// Main observed issues:
-// #1 FIXED it is unclear "how the system works", in particular how messages are received
-// #2 FIXED Rules 8&1 are actually one rule, and should have a single action
-//    - I couldn't put it into a single action, because I don't know how to pick
-//    a value in a 'pure def'. (Normally, a party advances in view only when it
-//    receives a new message, so sending a proposal is normally part of
-//    processMessage)
-// #3 We don't have the right checks in Rule 2
-// #4 Rule 7 is missing
-// #5 FIXED Pre-requisite for #3 are: #1 and have a better state in which we store (a summary) of received messages
-// #6: If the proposal is valid, add it to the received messages
-// #7: Properly update the local state, including highestCert (code in [moveToNextView] may be useful)
-// For some of the items, we could first detect some issues and then fix them
+Meaning of FIXME:
+- something does not make sense and needs to be fixed
+
+Main observed issues:
+#1 FIXED it is unclear "how the system works", in particular how messages are received
+#2 FIXED Rules 8&1 are actually one rule, and should have a single action
+   - I couldn't put it into a single action, because I don't know how to pick
+     a value in a 'pure def'. (Normally, a party advances in view only when it
+     receives a new message, so sending a proposal is normally part of
+     [processMessage])
+#3 We don't have the right checks in Rule 2
+#4 Rule 7 is missing
+#5 FIXED Pre-requisite for #3 are: #1 and have a better state in which we store (a summary) of received messages
+#6 FIXED If the proposal is valid, add the messages in its certificate to the received messages
+#7 Properly update the local state, including highestCert (code in [moveToNextView] may be useful)
+
+For some of the items, we could first detect some issues and then fix them
+*****************************************************/
+
 
 module simplex {
   import basicSpells.* from "./basicSpells"
@@ -47,14 +52,17 @@ module simplex {
     | NoCert
 
   /// Message types
+
+  /// Note: this CertMessage type could be avoided if we'd had support for
+  /// recursive types (AFAIU, recursive types are not supported)
   type CertMessage =
     | VoteMsg({ view: View, value: Value })
     | FinalMsg({ view: View, value: Value })
 
-  /// Note: this CertMessage type could be avoided if we'd had support for
-  /// recursive types (AFAIU, recursive types are not supported)
+  type NetworkCertMsg = (ProcessID, CertMessage)
+
   type Message =
-    | ProposeMsg({ view: View, value: Value, cert: Set[(ProcessID, CertMessage)] })
+    | ProposeMsg({ view: View, value: Value, cert: Set[NetworkCertMsg] })
     | CertMsg(CertMessage)
 
   /// Messages on the network carry the sender
@@ -71,7 +79,7 @@ module simplex {
     sentFinal: bool,
     decided: Option[Value],
     highestCert: Certificate,
-    recvMsgs: Set[NetworkMsg],
+    seenMsgs: Set[NetworkMsg],
   }
 
   type ConsensusInput =
@@ -209,7 +217,7 @@ module simplex {
 
   // Return the certificate that the given messages represent, if any. This can
   // be seen as a certificate validity check.
-  pure def certFromCertMsgs(certMsgs: Set[(ProcessID, CertMessage)]): Option[Certificate] = {
+  pure def certFromCertMsgs(certMsgs: Set[NetworkCertMsg]): Option[Certificate] = {
     val count = certMsgs.size()
     val someMsg = certMsgs.chooseSome()._2
     match someMsg {
@@ -249,7 +257,7 @@ module simplex {
 
   // FIXME#3: not the right checks, UPDATE!
   /// Process a propose message (Rule 2)
-  pure def processPropose(ls: LocalState, k: View, x: Value, certMsgs: Set[(ProcessID, CertMessage)]): Result = {
+  pure def processPropose(ls: LocalState, k: View, x: Value, certMsgs: Set[NetworkCertMsg]): Result = {
     if (k != ls.view or ls.voted) {
       // TODO: we indeed only accept the proposal in the current view? I think
       // this makes sense indeed, but it's not in the spec!
@@ -262,13 +270,15 @@ module simplex {
         | None => // Not a valid certificate
             { output: Set(), post: ls }
         | Some(cert) =>
+            val msgs = certMsgs.map(m => {sender: m._1, msg: CertMsg(m._2)})
+            val newLS = {...ls, seenMsgs: ls.seenMsgs.union(msgs)}
             if (not(higherPriority(cert, ls.highestCert))) {
               // Certificate not high priority enough
-              { output: Set(), post: ls }
+              { output: Set(), post: newLS }
             }
             else {
               // Valid proposal, vote for it
-              val newState = { ...ls,
+              val newState = { ...newLS,
                 voted: true,
                 highestCert: cert
               }
@@ -331,10 +341,10 @@ module simplex {
       { output: Set(), post: ls }
     } else {
       // Check all values for slow certificate (n-f-p votes)
-      val values = ls.recvMsgs.getValues(ls.view).exclude(Set(BOTTOM))
+      val values = ls.seenMsgs.getValues(ls.view).exclude(Set(BOTTOM))
       val canSendFinal = values.fold(None, (acc, x) =>
         if (acc != None) acc
-        else if (getVoteSenders(ls.recvMsgs, ls.view, x).size() >= n - f - p) Some(x)
+        else if (getVoteSenders(ls.seenMsgs, ls.view, x).size() >= n - f - p) Some(x)
         else None
       )
 
@@ -349,9 +359,9 @@ module simplex {
   }
 
  pure def canIncreaseView(ls: LocalState): bool = {
-    val values = ls.recvMsgs.getValues(ls.view)
+    val values = ls.seenMsgs.getValues(ls.view)
     val certs = values.fold((Set(), Set()), (accCerts, value) =>
-        val votes = getVoteSenders(ls.recvMsgs, ls.view, value).size()
+        val votes = getVoteSenders(ls.seenMsgs, ls.view, value).size()
         val fastCerts = accCerts._1
         val slowCerts = accCerts._2
         val newCerts =
@@ -367,7 +377,7 @@ module simplex {
           } else {
             (fastCerts, slowCerts)
           }
-        val finals = getFinalSenders(ls.recvMsgs, ls.view, value).size()
+        val finals = getFinalSenders(ls.seenMsgs, ls.view, value).size()
         if (finals >= n - f - p and value == BOTTOM) {
           val slowCert = SlowCert({ view: ls.view, value: value })
           (newCerts._1, newCerts._2.union(Set(slowCert)))
@@ -385,10 +395,10 @@ module simplex {
       { output: Set(), post: ls }
     } else {
       // Check all values for fast certificate (n-p votes)
-      val values = ls.recvMsgs.getValues(ls.view)
+      val values = ls.seenMsgs.getValues(ls.view)
       val fastDecision = values.fold(None, (acc, x) =>
         if (acc != None) acc
-        else if (getVoteSenders(ls.recvMsgs, ls.view, x).size() >= n - p) Some(x)
+        else if (getVoteSenders(ls.seenMsgs, ls.view, x).size() >= n - p) Some(x)
         else None
       )
 
@@ -410,11 +420,11 @@ module simplex {
       { output: Set(), post: ls }
     } else {
       // Check for n-f-p final messages
-      val values = ls.recvMsgs.getValues(ls.view).exclude(Set(BOTTOM))
+      val values = ls.seenMsgs.getValues(ls.view).exclude(Set(BOTTOM))
       val slowDecision = values.fold(None, (acc, x) =>
         if (acc != None) acc
         else {
-          val finalCount = getFinalSenders(ls.recvMsgs, ls.view, x).size()
+          val finalCount = getFinalSenders(ls.seenMsgs, ls.view, x).size()
           if (finalCount >= n - f - p) Some(x)
           else None
         }
@@ -446,12 +456,12 @@ module simplex {
       | NoCert => newValue
     }
     val certMsgs = match ls.highestCert {
-      | FastCert(c) => ls.recvMsgs.getVotes(c.view,c.value)
+      | FastCert(c) => ls.seenMsgs.getVotes(c.view,c.value)
       | SlowCert(c) =>
           if (c.value == BOTTOM)
-            ls.recvMsgs.getFinals(c.view,c.value)
+            ls.seenMsgs.getFinals(c.view,c.value)
           else
-            ls.recvMsgs.getVotes(c.view,c.value)
+            ls.seenMsgs.getVotes(c.view,c.value)
       | NoCert => Set()
     }.filterMap(m => match m.msg {
       | CertMsg(msg) => Some((m.sender, msg))
@@ -464,16 +474,15 @@ module simplex {
   pure def composeResult(res1: Result, res2: Result): Result =
     { output: res1.output.union(res2.output), post: res2.post }
 
-  // FIXME#7 properly update the local state, including highestCert
   pure def processMessage(ls: LocalState, networkMsg: NetworkMsg): Result = {
     match networkMsg.msg {
       | ProposeMsg(m) =>
-          // FIXME#6: if the proposal is valid, add it to the received messages
           processPropose(ls, m.view, m.value, m.cert)
       | CertMsg(msg) => {
+          // FIXME#7 properly update the local state, including highestCert
           match msg {
             | VoteMsg(m) => {
-                val ls2 = { ...ls, recvMsgs: ls.recvMsgs.union(Set(networkMsg)) }
+                val ls2 = { ...ls, seenMsgs: ls.seenMsgs.union(Set(networkMsg)) }
                 // Process vote by checking if we can decide or send final
                 // FIXME#4: missing Rule 7
                 // TODO: that's hard to read, improve!
@@ -487,7 +496,7 @@ module simplex {
                 }
               }
             | FinalMsg(m) => {
-                val ls2 = { ...ls, recvMsgs: ls.recvMsgs.union(Set(networkMsg)) }
+                val ls2 = { ...ls, seenMsgs: ls.seenMsgs.union(Set(networkMsg)) }
                 val res = checkSlowDecision(ls2)
                 if (res.output.size() > 0) res
                 else {
@@ -518,6 +527,6 @@ module simplex {
     sentFinal: false,
     decided: None,
     highestCert: NoCert,
-    recvMsgs: Set()
+    seenMsgs: Set()
   }
 }
