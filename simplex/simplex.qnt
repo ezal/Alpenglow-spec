@@ -338,7 +338,7 @@ module simplex {
   }
 
   /// Send Final message if we have enough votes to (Rule 3)
-  pure def trySendFinal(ls: LocalState): Result = {
+  pure def maybeSendFinal(ls: LocalState): Result = {
     if (ls.sentFinal) {
       // Already sent final
       { output: Set(), post: ls }
@@ -362,8 +362,9 @@ module simplex {
   }
 
  pure def canIncreaseView(ls: LocalState): bool = {
-    val values = ls.seenMsgs.getValues(ls.view)
-    val certs = values.fold((Set(), Set()), (accCerts, value) =>
+    ls.voted and ls.sentFinal and (
+      val values = ls.seenMsgs.getValues(ls.view)
+      val certs = values.fold((Set(), Set()), (accCerts, value) =>
         val votes = getVoteSenders(ls.seenMsgs, ls.view, value).size()
         val fastCerts = accCerts._1
         val slowCerts = accCerts._2
@@ -389,6 +390,7 @@ module simplex {
         }
       )
      certs._1.size() >= 1 and certs._2.size() >= 1
+     )
  }
 
   /// Check if we can form a fast certificate and decide (Rule 4, part 1)
@@ -492,7 +494,7 @@ module simplex {
                 val res = checkFastDecision(ls2)
                 if (res.output.size() > 0) res
                 else {
-                  val res2 = trySendFinal(res.post)
+                  val res2 = maybeSendFinal(res.post)
                   val res3 = composeResult(res, res2)
                   val ls3 = maybeIncreaseView(res3.post)
                   {...res3, post: ls3}
