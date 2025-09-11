@@ -310,6 +310,8 @@ module simplex {
   }
 
   /// Process a Final timeout (Rule 6)
+  // TODO: normally this cannot be triggered before the Vote timeout; however,
+  // we don't check this
   pure def processFinalTimeout(ls: LocalState, k: View): Result = {
     if (k != ls.view or ls.sentFinal) {
       // Wrong view or already sent Final
