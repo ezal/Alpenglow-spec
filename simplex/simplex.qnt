@@ -207,45 +207,76 @@ module simplex {
     }
   }
 
-  /// Here we assume that certMsgs represent a valid cert
-  // TODO: can we add asserts?
-  pure def fromCertMsgs(certMsgs: Set[(ProcessID, CertMessage)]): Certificate = {
+  // Return the certificate that the given messages represent, if any. This can
+  // be seen as a certificate validity check.
+  pure def certFromCertMsgs(certMsgs: Set[(ProcessID, CertMessage)]): Option[Certificate] = {
     val count = certMsgs.size()
-    val msg = certMsgs.chooseSome()._2
-    val cert = match msg {
+    val someMsg = certMsgs.chooseSome()._2
+    match someMsg {
       | VoteMsg(m) =>
-          if (count >= n-f-p) { SlowCert({view:m.view, value:m.value}) }
-          else if (count >= n-2*f-p) { FastCert({view:m.view, value:m.value}) }
-          else NoCert
+          val same = certMsgs.forall(msg =>
+            match msg._2 {
+              | VoteMsg(m2) => m.view == m2.view and m.value == m2.value
+              | _ => false
+            })
+          if (not(same))
+            None
+          else {
+            if (count >= n-f-p) {
+              Some(SlowCert({view:m.view, value:m.value}))
+            }
+            else if (count >= n-2*f-p) {
+              Some(FastCert({view:m.view, value:m.value}))
+            }
+            else None
+          }
       | FinalMsg(m) =>
-          if (count >= n-f-p and m.value == BOTTOM) { SlowCert({view:m.view, value:m.value}) }
-          else NoCert }
-    // assert(cert != NoCert)
-    cert
+          val same = certMsgs.forall(msg =>
+            match msg._2 {
+              | FinalMsg(m2) => m.view == m2.view and m.value == m2.value
+              | _ => false
+            })
+          if (not(same))
+            None
+          else {
+            if (count >= n-f-p and m.value == BOTTOM) {
+              Some(SlowCert({view:m.view, value:m.value}))
+            }
+            else
+              None }
+          }
   }
 
   // FIXME#3: not the right checks, UPDATE!
   /// Process a propose message (Rule 2)
   pure def processPropose(ls: LocalState, k: View, x: Value, certMsgs: Set[(ProcessID, CertMessage)]): Result = {
     if (k != ls.view or ls.voted) {
+      // TODO: we indeed only accept the proposal in the current view? I think
+      // this makes sense indeed, but it's not in the spec!
       // Wrong view or already voted
       { output: Set(), post: ls }
-    } else {
-      // TODO: check is certificate is valid
-      val cert = fromCertMsgs(certMsgs)
-      if (not(higherPriority(cert, ls.highestCert))) {
-        // Certificate not high priority enough
-        { output: Set(), post: ls }
-      } else {
-        // Valid proposal, vote for it
-        val newState = { ...ls,
-          voted: true,
-          highestCert: cert
-        }
-        {
-          output: Set(Broadcast(CertMsg(VoteMsg({ view: k, value: x })))),
-          post: newState
-        }
+    }
+    else {
+      val certOpt = certFromCertMsgs(certMsgs)
+      match certOpt {
+        | None => // Not a valid certificate
+            { output: Set(), post: ls }
+        | Some(cert) =>
+            if (not(higherPriority(cert, ls.highestCert))) {
+              // Certificate not high priority enough
+              { output: Set(), post: ls }
+            }
+            else {
+              // Valid proposal, vote for it
+              val newState = { ...ls,
+                voted: true,
+                highestCert: cert
+              }
+              {
+                output: Set(Broadcast(CertMsg(VoteMsg({ view: k, value: x })))),
+                post: newState
+              }
+            }
       }
     }
   }
