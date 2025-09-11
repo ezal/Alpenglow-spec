@@ -57,8 +57,8 @@ module statemachine {
       // Consider views 0 to 3
       0.to(3).fold(acc, (acc2, view) =>
         acc2.union(Set(
-          VoteMsg({ view: view, value: value }),
-          FinalMsg({ view: view, value: value })
+          CertMsg(VoteMsg({ view: view, value: value })),
+          CertMsg(FinalMsg({ view: view, value: value }))
         ))
       )
     )
