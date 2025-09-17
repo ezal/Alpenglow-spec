@@ -57,8 +57,8 @@ module statemachine {
       // Consider views 0 to 3
       0.to(3).fold(acc, (acc2, view) =>
         acc2.union(Set(
-          CertMsg(VoteMsg({ view: view, value: value })),
-          CertMsg(FinalMsg({ view: view, value: value }))
+          VoteMsg({ view: view, value: value }),
+          FinalMsg({ view: view, value: value })
         ))
       )
     )
@@ -87,7 +87,6 @@ module statemachine {
         sentFinal: false,
         decided: None,
         highestCert: NoCert,
-        seenMsgs: Set()
       }),
       msgBuffer: Set(),
       decisions: correct.mapBy(_ => None),
@@ -96,11 +95,15 @@ module statemachine {
   }
 
   /// Correct process receives a message
-  action receiveMessage(u: ProcessID, msg: NetworkMsg): bool = all {
-    u.in(correct),
-    val input = MessageInput(msg)
-    applyInput(u, input)
-  }
+  // action receiveMessage(u: ProcessID, msg: NetworkMsg): bool = all {
+  //   u.in(correct),
+  //   val input = MessageInput(msg)
+  //   applyInput(u, input)
+  // }
+
+
+  // TODO: I think it would be cleaner to not habe the `applyInput` inside specific actions,
+  // but rather have the action functions just return the input, and then have a single `apply 
 
   /// Leader 'u' proposes a value (Rule 1)
   action sendProposal(u: ProcessID): bool = all {
@@ -109,7 +112,7 @@ module statemachine {
     isLeader(u, s.localStates.get(u).view),
     // TODO: we could just choose any not-yet-proposed value
     nondet value = proposalValues.oneOf()
-    val input = ProposeInput(value)
+    val input = SendProposeInput(value)
     applyInput(u, input)
   }
 
@@ -127,56 +130,32 @@ module statemachine {
     applyInput(u, input)
   }
 
-  // TODO: remove after checking that this code is not useful
   /// Move to next view with appropriate certificate
-  // action moveToNextView(u: ProcessID): bool = all {
-  //   u.in(correct),
-  //   s.decisions.get(u) == None,  // Haven't decided yet
-  //   val ls = s.localStates.get(u)
-  //   val currentView = ls.view
-  //   val msgs = allNetworkMsgs
+  action moveToNextView(u: ProcessID): bool = all {
+    u.in(correct),
+    s.decisions.get(u) == None,  // Haven't decided yet
+    val ls = s.localStates.get(u)
+    val msgs = allNetworkMsgs
 
-  //   // Find the highest certificate from current or previous views
-  //   val values = proposalValues.union(Set(BOTTOM))
-  //   val certs = values.fold(Set(), (acc, value) =>
-  //     0.to(currentView).fold(acc, (acc2, view) =>
-  //       val votes = countVotes(msgs, view, value).size()
-  //       val res =
-  //         if (votes >= n - f - p and value != BOTTOM) {
-  //           acc2.union(Set(SlowCert({ view: view, value: value })))
-  //         } else if (votes >= n - 2*f - p) {
-  //           acc2.union(Set(FastCert({ view: view, value: value })))
-  //         } else {
-  //           acc2
-  //         }
-  //       val finals = countFinals(msgs, view, value).size()
-  //       if (finals >= n - f - p and value == BOTTOM) {
-  //         res.union(Set(SlowCert({ view: view, value: value })))
-  //       } else {
-  //         res
-  //       }
-  //     )
-  //   )
-
-  //   // TODO: not checked further
-  //   val highestCert = certs.fold(NoCert, (best, cert) =>
-  //     if (higherPriority(cert, best)) cert else best
-  //   )
-
-  //   all {
-  //     s' = { ...s,
-  //       localStates: s.localStates.set(u, {
-  //         view: currentView + 1,
-  //         voted: false,
-  //         sentFinal: false,
-  //         decided: None,
-  //         highestCert: highestCert,
-  //         seenMsgs: ls.seenMsgs,
-  //       })
-  //     },
-  //     counter' = counter + 1,
-  //   }
-  // }
+    all {
+      canIncreaseView(ls, msgs),
+      // Find the highest certificate from current or previous views
+      val highestCert = findHighestCert(ls.view, msgs, proposalValues) 
+      val newLS = { ...ls,
+          view: ls.view + 1,
+          voted: false,
+          sentFinal: false,
+          proposed: false,
+          decided: None,
+          highestCert: highestCert,
+        }
+      if (isLeader(u, newLS.view)) 
+        sendProposal(u) 
+      else all {
+        s' = {...s, localStates: s.localStates.set(u, newLS)},
+        counter' = counter + 1 }
+    }
+  }
 
 
   /// Main step action
@@ -185,12 +164,15 @@ module statemachine {
     any {
       nondet u = correct.oneOf()
       any {
-        sendProposal(u),
+        // sendProposal(u),
         nondet msg = allNetworkMsgs.oneOf()
-        receiveMessage(u, msg),
+        // receiveMessage(u, msg),
         voteTimeout(u),
-        finalTimeout(u)
+        finalTimeout(u),
+        moveToNextView(u),
       }
+      // TODO: integrate this
+      // counter' = counter + 1,
     }
   }
 

@@ -11,14 +11,13 @@ module simplex_2_parties {
   // run agree_in_view_2 =
   //   init
   //   .then(voteTimeout("p1"))
-  //   .then(receiveMessage("p1", { msg: CertMsg(VoteMsg({ value: -1, view: 0 })), sender: "p1" }))
+  //   .then(receiveMessage("p1", { msg: VoteMsg({ value: -1, view: 0 }), sender: "p1" }))
   //   .then(...)
 
   run agree_in_view_1 =
     init
     .then(sendProposal("p1"))
-    .then(receiveMessage("p1", { msg: ProposeMsg({ cert: Set(), value: 2, view: 0 }), sender: "p1" }))
-    .then(receiveMessage("p2", { msg: ProposeMsg({ cert: Set(), value: 2, view: 0 }), sender: "p1" }))
+
 }
 
 module simplex_5_parties_1_byz {
