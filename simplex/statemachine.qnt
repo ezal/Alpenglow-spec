@@ -8,6 +8,10 @@ module statemachine {
   import simplex.* from "./simplex"
   export simplex.*
 
+  const maxCounter: int  // Bound for model checking
+
+  const maxView: int
+
   /// This is all the information of the global state
   type System = {
     // The local state of each process
@@ -18,11 +22,12 @@ module statemachine {
 
     // Decided values
     // TODO: this could also be directly obtained from the localStates...
+    // Moreover, not sure this is needed at all
     decisions: ProcessID -> Option[Value],
   }
 
   /// Interface consensus algorithm / state machine: how consensus algorithm effects the environment
-  pure def applyEffect(sys: System, pid: ProcessID, res: Result): System =
+  pure def applyResult(sys: System, pid: ProcessID, res: Result): System =
     // update the state of the process
     val new = { ... sys, localStates: sys.localStates.set(pid, res.post) }
     // update the message buffer and decisions
@@ -36,7 +41,8 @@ module statemachine {
       })
 
   action applyInput(id: ProcessID, input: ConsensusInput): bool = all {
-    s' = applyEffect(s, id, processInput(s.localStates.get(id), input)),
+    val res = processInput(s.localStates.get(id), input)
+    s' = applyResult(s, id, res),
     counter' = counter + 1,
   }
 
@@ -54,11 +60,13 @@ module statemachine {
   /// All possible messages that Byzantine processes can send
   pure val byzMessages =
     proposalValues.union(Set(BOTTOM)).fold(Set(), (acc, value) =>
-      // Consider views 0 to 3
-      0.to(3).fold(acc, (acc2, view) =>
+      // Consider views 0 to maxView
+      0.to(maxView).fold(acc, (acc2, view) =>
         acc2.union(Set(
           VoteMsg({ view: view, value: value }),
           FinalMsg({ view: view, value: value })
+          // TODO: also include ProposeMsg; note, there are many! 
+          // We should build only those with the right leader
         ))
       )
     )
@@ -94,27 +102,8 @@ module statemachine {
     counter' = 0,
   }
 
-  /// Correct process receives a message
-  // action receiveMessage(u: ProcessID, msg: NetworkMsg): bool = all {
-  //   u.in(correct),
-  //   val input = MessageInput(msg)
-  //   applyInput(u, input)
-  // }
-
-
-  // TODO: I think it would be cleaner to not habe the `applyInput` inside specific actions,
+  // TODO: I think it would be cleaner to not have the `applyInput` inside specific actions,
   // but rather have the action functions just return the input, and then have a single `apply 
-
-  /// Leader 'u' proposes a value (Rule 1)
-  action sendProposal(u: ProcessID): bool = all {
-    u.in(correct),
-    not(s.localStates.get(u).proposed),
-    isLeader(u, s.localStates.get(u).view),
-    // TODO: we could just choose any not-yet-proposed value
-    nondet value = proposalValues.oneOf()
-    val input = SendProposeInput(value)
-    applyInput(u, input)
-  }
 
   /// Process Vote time-out
   action voteTimeout(u: ProcessID): bool = all {
@@ -130,37 +119,57 @@ module statemachine {
     applyInput(u, input)
   }
 
-  /// Move to next view with appropriate certificate
-  action moveToNextView(u: ProcessID): bool = all {
+  /// 'u' moves to next view and proposes a value if it is the leader (Rules 8 and 1)
+  action moveToNextViewAndMaybePropose(u: ProcessID): bool = all {
     u.in(correct),
     s.decisions.get(u) == None,  // Haven't decided yet
     val ls = s.localStates.get(u)
     val msgs = allNetworkMsgs
 
     all {
+      ls.view < maxView,
       canIncreaseView(ls, msgs),
-      // Find the highest certificate from current or previous views
-      val highestCert = findHighestCert(ls.view, msgs, proposalValues) 
-      val newLS = { ...ls,
-          view: ls.view + 1,
-          voted: false,
-          sentFinal: false,
-          proposed: false,
-          decided: None,
-          highestCert: highestCert,
-        }
-      if (isLeader(u, newLS.view)) 
-        sendProposal(u) 
-      else all {
-        s' = {...s, localStates: s.localStates.set(u, newLS)},
-        counter' = counter + 1 }
+      // TODO: we could rather choose any not-yet-proposed value
+      nondet value = proposalValues.oneOf()
+      val input = NextViewInput((u, value, msgs, proposalValues))
+      applyInput(u, input)
     }
   }
 
+  action takeDecision(u: ProcessID): bool = all {
+    u.in(correct),
+    s.decisions.get(u) == None,
+    val ls = s.localStates.get(u)
+    val msgs = allNetworkMsgs
+    nondet value = proposalValues.oneOf()
+    all {
+      canDecide(ls.view, value, msgs),
+      s' = applyResult(s, u, decide(ls, value)),
+      counter' = counter + 1,
+    }
+  }
+
+  action voteOnProposal(u: ProcessID): bool = all {
+    u.in(correct),
+    s.decisions.get(u) == None,
+    val ls = s.localStates.get(u)
+    not(ls.voted),
+    // TODO: do we indeed only accept the proposal in the current view? I think
+    // this makes sense indeed, but it's not in the spec!
+    val msgs = allNetworkMsgs.getProposals(ls.view)
+    nondet proposeMsg = proposalValues.oneOf()
+    all {
+      // TODO: check invariant: all proposals come from the expected leaders
+      isValidProposal(ls, proposeMsg, msgs),
+      // TODO: update highestCert??
+      val input = VoteInput((value, msgs))
+      applyInput(u, input)
+    }
+  }
 
   /// Main step action
   action step = all {
-    counter < 20,  // Bound for model checking
+    counter < maxCounter,
     any {
       nondet u = correct.oneOf()
       any {
@@ -169,10 +178,10 @@ module statemachine {
         // receiveMessage(u, msg),
         voteTimeout(u),
         finalTimeout(u),
-        moveToNextView(u),
+        moveToNextViewAndMaybePropose(u),
+        voteOnProposal(u),
+        takeDecision(u),
       }
-      // TODO: integrate this
-      // counter' = counter + 1,
     }
   }
 
