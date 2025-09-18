@@ -17,17 +17,7 @@ Meaning of FIXME:
 - something does not make sense and needs to be fixed
 
 Main observed issues:
-#1 FIXED it is unclear "how the system works", in particular how messages are received
-#2 FIXED Rules 8&1 are actually one rule, and should have a single action
-   - I couldn't put it into a single action, because I don't know how to pick
-     a value in a 'pure def'. (Normally, a party advances in view only when it
-     receives a new message, so sending a proposal is normally part of
-     [processMessage])
-#3 We don't have the right checks in Rule 2
 #4 Rule 7 is missing
-#5 FIXED Pre-requisite for #3 are: #1 and have a better state in which we store (a summary) of received messages
-#6 FIXED If the proposal is valid, add the messages in its certificate to the received messages
-#7 Properly update the local state, including highestCert (code in [moveToNextView] may be useful)
 
 For some of the items, we could first detect some issues and then fix them
 *****************************************************/
@@ -157,8 +147,13 @@ module simplex {
   /// Check if a certificate is valid
   pure def isValidCert(cert: Certificate, msgs: Set[NetworkMsg]): bool = {
     match cert {
-      | FastCert(c) => getVoteSenders(msgs, c.view, c.value).sumPower() >= N - 2*F - P
-      | SlowCert(c) => getVoteSenders(msgs, c.view, c.value).sumPower() >= N - F - P
+      | FastCert(c) => getVotesPower(msgs, c.view, c.value) >= N - 2*F - P
+      | SlowCert(c) =>
+        if (c.value != BOTTOM) {
+          getVotesPower(msgs, c.view, c.value) >= N - F - P
+        } else {
+          getFinalsPower(msgs, c.view, c.value) >= N - F - P
+        }
       | NoCert => true
     }
   }
@@ -243,8 +238,6 @@ module simplex {
     post: LocalState,
   }
 
-
-  // FIXME#3: not the right checks, UPDATE! But not here, here we assume the proposal is valid
   /// Process a propose message (Rule 2)
   pure def processPropose(ls: LocalState, k: View, x: Value, cert: Certificate): Result = {
     if (k != ls.view or ls.voted) {
@@ -421,8 +414,9 @@ module simplex {
     }
   }
 
+  // Increase view
   pure def processNextView(u: ProcessID, ls: LocalState, newValue: Value, msgs: Set[NetworkMsg], values: Set[Value]): Result = {
-    // Increase view
+    // TODO: is it correct to update the highest cert in this way?
     val highestCert = findHighestCert(ls.view, msgs, values)
     val newLS = { ...ls,
           view: ls.view + 1,
