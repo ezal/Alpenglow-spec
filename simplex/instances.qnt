@@ -14,10 +14,9 @@ module simplex_2_parties {
   //   .then(receiveMessage("p1", { msg: VoteMsg({ value: -1, view: 0 }), sender: "p1" }))
   //   .then(...)
 
-  run agree_in_view_1 =
-    init
-    .then(sendProposal("p1"))
-
+  // run agree_in_view_1 =
+  //   init
+  //   .then(sendProposal("p1"))
 }
 
 module simplex_5_parties_1_byz {

@@ -136,6 +136,24 @@ module statemachine {
     }
   }
 
+  /// 'u' moves to next view and proposes a value if it is the leader (Rules 8 and 1)
+  action proposeAtViewZero(u: ProcessID): bool = all {
+    u.in(correct),
+    s.decisions.get(u) == None,  // Haven't decided yet
+    val ls = s.localStates.get(u)
+    val msgs = allNetworkMsgs
+
+    all {
+      ls.view == 0,
+      canIncreaseView(ls, msgs),
+      // TODO: we could rather choose any not-yet-proposed value
+      nondet value = proposalValues.oneOf()
+      val res = maybePropose(u, ls, value)
+      s' = applyResult(s, u, res),
+      counter' = counter + 1,
+    }
+  }
+
   action takeDecision(u: ProcessID): bool = all {
     u.in(correct),
     s.decisions.get(u) == None,
@@ -158,14 +176,14 @@ module statemachine {
       not(ls.voted),
       // TODO: do we indeed only accept the proposal in the current view? I think
       // this makes sense indeed, but it's not in the spec!
-      val msgs = allNetworkMsgs.getProposals(ls.view)
-      nondet proposeMsg = proposalValues.oneOf()
+      val proposals = allNetworkMsgs.getProposals(ls.view)
+      nondet proposeMsg = proposals.oneOf()
       all {
         // TODO: check invariant: all proposals come from the expected leaders
-        isValidProposal(ls, proposeMsg, msgs),
+        isValidProposal(ls, proposeMsg, allNetworkMsgs),
         // TODO: update highestCert?? We should do that even if u has already voted, right?
         val res = {
-          output: Broadcast(VoteMsg({view: ls.view, value: getMsgValue(ProposeMsg.msg)})),
+          output: Set(Broadcast(VoteMsg({view: ls.view, value: getMsgValue(proposeMsg.msg)}))),
           post: { ...ls, voted: true }}
         s' = applyResult(s, u, res),
         counter' = counter + 1,

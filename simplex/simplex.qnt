@@ -408,6 +408,14 @@ module simplex {
     {output: Set(Broadcast(msg)), post: newLS}
   }
 
+  pure def maybePropose(u: ProcessID, ls: LocalState, newValue: Value): Result = {
+    if (isLeader(u, ls.view) and not(ls.proposed)) {
+      propose(ls, newValue)
+    } else {
+      { output: Set(), post: ls }
+    }
+  }
+
   /* 
   pure def composeResult(res1: Result, res2: Result): Result =
     { output: res1.output.union(res2.output), post: res2.post }
@@ -445,6 +453,8 @@ module simplex {
   }
   */
 
+
+
   pure def processNextView(u: ProcessID, ls: LocalState, newValue: Value, msgs: Set[NetworkMsg], values: Set[Value]): Result = {
     // Increase view
     val highestCert = findHighestCert(ls.view, msgs, values) 
@@ -456,11 +466,7 @@ module simplex {
           decided: None,
           highestCert: highestCert,
         }
-    if (isLeader(u, newLS.view)) {
-      propose(newLS, newValue)
-    } else {
-      { output: Set(), post: newLS }
-    }
+    maybePropose(u, newLS, newValue)
   }
 
   /// Main consensus function
