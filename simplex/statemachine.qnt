@@ -65,7 +65,7 @@ module statemachine {
         acc2.union(Set(
           VoteMsg({ view: view, value: value }),
           FinalMsg({ view: view, value: value })
-          // TODO: also include ProposeMsg; note, there are many! 
+          // TODO: also include ProposeMsg; note, there are many!
           // We should build only those with the right leader
         ))
       )
@@ -73,7 +73,7 @@ module statemachine {
 
   /// All votes that can be sent by the Byzantine processes
   pure val byzNetworkMsgs =
-    byzantine.fold(Set(), (acc, sender) =>
+    BYZANTINE.fold(Set(), (acc, sender) =>
       byzMessages.fold(acc, (acc2, msg) =>
         acc2.union(Set({ sender: sender, msg: msg }))
       )
@@ -88,7 +88,7 @@ module statemachine {
 
   action init = all {
     s' = {
-      localStates: correct.mapBy(_ => {
+      localStates: CORRECT.mapBy(_ => {
         view: 0,
         proposed: false,
         voted: false,
@@ -97,31 +97,31 @@ module statemachine {
         highestCert: NoCert,
       }),
       msgBuffer: Set(),
-      decisions: correct.mapBy(_ => None),
+      decisions: CORRECT.mapBy(_ => None),
     },
     counter' = 0,
   }
 
   // TODO: I think it would be cleaner to not have the `applyInput` inside specific actions,
-  // but rather have the action functions just return the input, and then have a single `apply 
+  // but rather have the action functions just return the input, and then have a single `apply
 
   /// Process Vote time-out
   action voteTimeout(u: ProcessID): bool = all {
-    u.in(correct),
+    u.in(CORRECT),
     val input = VoteTimeoutInput(s.localStates.get(u).view)
     applyInput(u, input)
   }
 
   /// Process Final time-out
   action finalTimeout(u: ProcessID): bool = all {
-    u.in(correct),
+    u.in(CORRECT),
     val input = FinalTimeoutInput(s.localStates.get(u).view)
     applyInput(u, input)
   }
 
   /// 'u' moves to next view and proposes a value if it is the leader (Rules 8 and 1)
   action moveToNextViewAndMaybePropose(u: ProcessID): bool = all {
-    u.in(correct),
+    u.in(CORRECT),
     s.decisions.get(u) == None,  // Haven't decided yet
     val ls = s.localStates.get(u)
     val msgs = allNetworkMsgs
@@ -138,7 +138,7 @@ module statemachine {
 
   /// 'u' moves to next view and proposes a value if it is the leader (Rules 8 and 1)
   action proposeValueAtViewZero(u: ProcessID, value: Value): bool = all {
-    u.in(correct),
+    u.in(CORRECT),
     s.decisions.get(u) == None,  // Haven't decided yet
     val ls = s.localStates.get(u)
     val msgs = allNetworkMsgs
@@ -158,7 +158,7 @@ module statemachine {
   }
 
   action takeDecisionOn(u: ProcessID, value: Value): bool = all {
-    u.in(correct),
+    u.in(CORRECT),
     s.decisions.get(u) == None,
     val ls = s.localStates.get(u)
     val msgs = allNetworkMsgs
@@ -175,7 +175,7 @@ module statemachine {
   }
   /// Vote on a valid proposal (Rule 2)
   action voteOnProposal(u: ProcessID): bool = all {
-    u.in(correct),
+    u.in(CORRECT),
     s.decisions.get(u) == None,
     val ls = s.localStates.get(u)
     all {
@@ -201,7 +201,7 @@ module statemachine {
   action step = all {
     counter < maxCounter,
     any {
-      nondet u = correct.oneOf()
+      nondet u = CORRECT.oneOf()
       any {
         // sendProposal(u),
         nondet msg = allNetworkMsgs.oneOf()
@@ -224,8 +224,8 @@ module statemachine {
 
   /// Agreement: no two correct processes decide different values
   val agreement =
-    correct.forall(p1 =>
-      correct.forall(p2 =>
+    CORRECT.forall(p1 =>
+      CORRECT.forall(p2 =>
         (s.decisions.get(p1) != None and s.decisions.get(p2) != None) implies
         (s.decisions.get(p1) == s.decisions.get(p2))
       )

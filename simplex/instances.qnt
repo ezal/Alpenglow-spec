@@ -1,10 +1,10 @@
 module simplex_2_parties {
   import statemachine(
-    correct = Set("p1", "p2"),
-    byzantine = Set("b1"),
+    CORRECT = Set("p1", "p2"),
+    BYZANTINE = Set("b1"),
+    F = 1,
+    P = 1,
     power = Map("p1" -> 1, "p2" -> 4, "b1" -> 1),
-    f = 1,
-    p = 1,
     proposalValues = Set(1, 2),
     maxCounter = 20,
     maxView = 2,
@@ -41,11 +41,11 @@ module simplex_2_parties {
 
 module simplex_5_parties_1_byz {
   import statemachine(
-    correct = Set("p1", "p2", "p3", "p4"),
-    byzantine = Set("b1"),
+    CORRECT = Set("p1", "p2", "p3", "p4"),
+    BYZANTINE = Set("b1"),
+    F = 1,
+    P = 1,
     power = Set("p1", "p2", "p3", "p4", "b1").mapBy(_ => 1),
-    f = 1,
-    p = 1,
     proposalValues = Set(1, 2),
   ).* from "./statemachine"
 }
