@@ -1,0 +1,13 @@
+parse:
+	quint parse simplex.qnt
+	quint parse statemachine.qnt
+	quint parse instances.qnt
+
+typecheck:
+	quint typecheck simplex.qnt
+	quint typecheck statemachine.qnt
+	quint typecheck instances.qnt
+
+test:
+	quint test instances.qnt --main simplex_2_parties --match change
+  quint test instances.qnt --main simplex_2_parties --match agree
