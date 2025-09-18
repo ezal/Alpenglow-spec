@@ -122,7 +122,7 @@ module statemachine {
   /// 'u' moves to next view and proposes a value if it is the leader (Rules 8 and 1)
   action moveToNextViewAndMaybePropose(u: ProcessID): bool = all {
     u.in(CORRECT),
-    s.decisions.get(u) == None,  // Haven't decided yet
+    s.decisions.get(u) == None,
     val ls = s.localStates.get(u)
     val msgs = allNetworkMsgs
 
@@ -207,7 +207,7 @@ module statemachine {
       val values = slowCertValues(allNetworkMsgs, ls.view)
       all {
         values.size() > 0,
-        // TODO: assert that values.size() == 1
+        assert(values.size() == 1),
         nondet value = values.oneOf()
         all {
           val res = sendFinalMsg(ls, value)
