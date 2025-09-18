@@ -2,14 +2,34 @@ module simplex_2_parties {
   import statemachine(
     correct = Set("p1", "p2"),
     byzantine = Set("b1"),
-    power = Map("p1" -> 1, "p2" -> 3, "b1" -> 1),
+    power = Map("p1" -> 1, "p2" -> 4, "b1" -> 1),
     f = 1,
     p = 1,
-    proposalValues = Set(1, 2)
+    proposalValues = Set(1, 2),
+    maxCounter = 20,
+    maxView = 2,
   ).* from "./statemachine"
 
-  // run agree_in_view_2 =
-  //   init
+
+// TODO `proposeAtViewZero("p2")` returns true! However, the state does not change...
+
+  run fast_agree_in_view_0 =
+    init
+    .then(proposeValueAtViewZero("p1", 1))
+    .then(voteOnProposal("p1"))
+    .then(voteOnProposal("p2"))
+    .then(takeDecisionOn("p1", 1))
+    .then(takeDecisionOn("p2", 1))
+
+  // If "p1" does not participate in voting, a (slow) decision can still be made
+  run slow_agree_in_view_0 =
+    init
+    .then(proposeAtViewZero("p1"))
+    .then(voteOnProposal("p2"))
+    // TODO: send Final
+    .then(takeDecision("p1"))
+    .then(takeDecision("p2"))
+
   //   .then(voteTimeout("p1"))
   //   .then(receiveMessage("p1", { msg: VoteMsg({ value: -1, view: 0 }), sender: "p1" }))
   //   .then(...)

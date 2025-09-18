@@ -137,7 +137,7 @@ module statemachine {
   }
 
   /// 'u' moves to next view and proposes a value if it is the leader (Rules 8 and 1)
-  action proposeAtViewZero(u: ProcessID): bool = all {
+  action proposeValueAtViewZero(u: ProcessID, value: Value): bool = all {
     u.in(correct),
     s.decisions.get(u) == None,  // Haven't decided yet
     val ls = s.localStates.get(u)
@@ -145,21 +145,23 @@ module statemachine {
 
     all {
       ls.view == 0,
-      canIncreaseView(ls, msgs),
-      // TODO: we could rather choose any not-yet-proposed value
-      nondet value = proposalValues.oneOf()
       val res = maybePropose(u, ls, value)
       s' = applyResult(s, u, res),
       counter' = counter + 1,
     }
   }
 
-  action takeDecision(u: ProcessID): bool = all {
+  action proposeAtViewZero(u: ProcessID): bool = all {
+    // TODO: we could rather choose any not-yet-proposed value
+    nondet value = proposalValues.oneOf()
+    proposeValueAtViewZero(u, value)
+  }
+
+  action takeDecisionOn(u: ProcessID, value: Value): bool = all {
     u.in(correct),
     s.decisions.get(u) == None,
     val ls = s.localStates.get(u)
     val msgs = allNetworkMsgs
-    nondet value = proposalValues.oneOf()
     all {
       canDecide(ls.view, value, msgs),
       s' = applyResult(s, u, decide(ls, value)),
@@ -167,6 +169,10 @@ module statemachine {
     }
   }
 
+  action takeDecision(u: ProcessID): bool = all {
+    nondet value = proposalValues.oneOf()
+    takeDecisionOn(u, value)
+  }
   /// Vote on a valid proposal (Rule 2)
   action voteOnProposal(u: ProcessID): bool = all {
     u.in(correct),
@@ -202,6 +208,7 @@ module statemachine {
         // receiveMessage(u, msg),
         voteTimeout(u),
         finalTimeout(u),
+        proposeAtViewZero(u),
         moveToNextViewAndMaybePropose(u),
         voteOnProposal(u),
         takeDecision(u),
