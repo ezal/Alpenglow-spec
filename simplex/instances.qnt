@@ -30,10 +30,23 @@ module simplex_2_parties {
     .then(takeDecision("p2"))
     .expect(allCorrectDecided)
 
-  // TODO: decide in view 1 due to timeouts in view 0
-  // run view_change_due_to_timeout =
-  //   .then(voteTimeout("p1")))
-  //   .then(...)
+  // decide in view 1 due to no proposal in view 0
+  run view_change_due_to_timeout =
+    init
+    .then(voteTimeout("p2"))
+    .then(finalTimeout("p2"))
+    .then(moveToNextViewAndMaybePropose("p2"))
+    .then(voteTimeout("p1"))
+    .then(finalTimeout("p1"))
+    .then(moveToNextViewAndMaybePropose("p1"))
+    .then(voteOnProposal("p1"))
+    .then(voteOnProposal("p2"))
+    // Note: we don't know what value was proposed in view 1, so we can't use takeDecisionOn
+    .then(takeDecision("p1"))
+    .then(takeDecision("p2"))
+    .expect(allCorrectDecided)
+
+  // TODO: scenarios with re-proposals
 }
 
 module simplex_5_parties_1_byz {
