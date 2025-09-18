@@ -149,21 +149,27 @@ module statemachine {
     }
   }
 
+  /// Vote on a valid proposal (Rule 2)
   action voteOnProposal(u: ProcessID): bool = all {
     u.in(correct),
     s.decisions.get(u) == None,
     val ls = s.localStates.get(u)
-    not(ls.voted),
-    // TODO: do we indeed only accept the proposal in the current view? I think
-    // this makes sense indeed, but it's not in the spec!
-    val msgs = allNetworkMsgs.getProposals(ls.view)
-    nondet proposeMsg = proposalValues.oneOf()
     all {
-      // TODO: check invariant: all proposals come from the expected leaders
-      isValidProposal(ls, proposeMsg, msgs),
-      // TODO: update highestCert??
-      val input = VoteInput((value, msgs))
-      applyInput(u, input)
+      not(ls.voted),
+      // TODO: do we indeed only accept the proposal in the current view? I think
+      // this makes sense indeed, but it's not in the spec!
+      val msgs = allNetworkMsgs.getProposals(ls.view)
+      nondet proposeMsg = proposalValues.oneOf()
+      all {
+        // TODO: check invariant: all proposals come from the expected leaders
+        isValidProposal(ls, proposeMsg, msgs),
+        // TODO: update highestCert?? We should do that even if u has already voted, right?
+        val res = {
+          output: Broadcast(VoteMsg({view: ls.view, value: getMsgValue(ProposeMsg.msg)})),
+          post: { ...ls, voted: true }}
+        s' = applyResult(s, u, res),
+        counter' = counter + 1,
+      }
     }
   }
 

@@ -126,6 +126,14 @@ module simplex {
     leader(view) == proc
   }
 
+  pure def getMsgValue(msg: Message): Value = {
+    match msg {
+      | ProposeMsg(m) => m.value
+      | VoteMsg(m) => m.value
+      | FinalMsg(m) => m.value
+    }
+  }
+
   /// Return the Vote messages for a given view and value from a set of messages
   pure def getVotes(msgs: Set[NetworkMsg], view: View, value: Value): Set[NetworkMsg] = {
     msgs
@@ -248,7 +256,7 @@ module simplex {
     }
   }
 
-  /// check Proposal is valid (Rule 2)
+  /// check Proposal is valid (Rule 2's precondition)
   pure def isValidProposal(ls: LocalState, proposal: NetworkMsg, msgs: Set[NetworkMsg]): bool = {
     match proposal.msg {
       | ProposeMsg(m) =>
