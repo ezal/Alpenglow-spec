@@ -11,8 +11,6 @@ module simplex_2_parties {
   ).* from "./statemachine"
 
 
-// TODO `proposeAtViewZero("p2")` returns true! However, the state does not change...
-
   run fast_agree_in_view_0 =
     init
     .then(proposeValueAtViewZero("p1", 1))
@@ -20,6 +18,7 @@ module simplex_2_parties {
     .then(voteOnProposal("p2"))
     .then(takeDecisionOn("p1", 1))
     .then(takeDecisionOn("p2", 1))
+    .expect(allCorrectDecided)
 
   // If "p1" does not participate in voting, a (slow) decision can still be made
   run slow_agree_in_view_0 =
@@ -29,14 +28,12 @@ module simplex_2_parties {
     .then(sendFinal("p2"))
     .then(takeDecision("p1"))
     .then(takeDecision("p2"))
+    .expect(allCorrectDecided)
 
-  //   .then(voteTimeout("p1"))
-  //   .then(receiveMessage("p1", { msg: VoteMsg({ value: -1, view: 0 }), sender: "p1" }))
+  // TODO: decide in view 1 due to timeouts in view 0
+  // run view_change_due_to_timeout =
+  //   .then(voteTimeout("p1")))
   //   .then(...)
-
-  // run agree_in_view_1 =
-  //   init
-  //   .then(sendProposal("p1"))
 }
 
 module simplex_5_parties_1_byz {

@@ -141,11 +141,11 @@ module statemachine {
     u.in(CORRECT),
     s.decisions.get(u) == None,  // Haven't decided yet
     val ls = s.localStates.get(u)
-    val msgs = allNetworkMsgs
-
     all {
       ls.view == 0,
-      val res = maybePropose(u, ls, value)
+      not(ls.proposed),
+      isLeader(u, ls.view),
+      val res = propose(ls, value)
       s' = applyResult(s, u, res),
       counter' = counter + 1,
     }
@@ -236,6 +236,8 @@ module statemachine {
   }
 
   //// Invariants and Properties
+
+  val allCorrectDecided = CORRECT.forall(p => s.decisions.get(p) != None)
 
   /// Agreement: no two correct processes decide different values
   val agreement =
