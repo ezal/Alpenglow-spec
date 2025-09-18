@@ -344,28 +344,19 @@ module simplex {
       })
   }
 
-  /// Send Final message if we have enough votes to (Rule 3)
-  pure def maybeSendFinal(ls: LocalState, msgs: Set[NetworkMsg]): Result = {
-    if (ls.sentFinal) {
-      // Already sent final
-      { output: Set(), post: ls }
-    } else {
-      // Check all values for slow certificate (n-f-p votes)
-      val values = msgs.getValues(ls.view).exclude(Set(BOTTOM))
-      val canSendFinal = values.fold(None, (acc, x) =>
-        if (acc != None) acc
-        else if (getVotesPower(msgs, ls.view, x) >= N - F - P) Some(x)
-        else None
-      )
+  pure def sendFinalMsg(ls: LocalState, value: Value): Result = {
+    output: Set(Broadcast(FinalMsg({ view: ls.view, value: value }))),
+    post: { ...ls, sentFinal: true }
+  }
 
-      match canSendFinal {
-        | Some(x) => {
-            output: Set(Broadcast(FinalMsg({ view: ls.view, value: x }))),
-            post: { ...ls, sentFinal: true }
-          }
-        | None => { output: Set(), post: ls }
-      }
-    }
+  pure def slowCertValues(msgs: Set[NetworkMsg], view: View): Set[Value] = {
+    // Check all values for slow certificate (n-f-p votes)
+    val values = msgs.getValues(view).exclude(Set(BOTTOM))
+    values.fold(Set(), (acc, x) =>
+      if (getVotesPower(msgs, view, x) >= N - F - P) {
+        acc.union(Set(x))
+      } else acc
+    )
   }
 
   pure def canIncreaseView(ls: LocalState, msgs: Set[NetworkMsg]): bool = {

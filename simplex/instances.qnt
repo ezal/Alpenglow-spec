@@ -26,7 +26,7 @@ module simplex_2_parties {
     init
     .then(proposeAtViewZero("p1"))
     .then(voteOnProposal("p2"))
-    // TODO: send Final
+    .then(sendFinal("p2"))
     .then(takeDecision("p1"))
     .then(takeDecision("p2"))
 

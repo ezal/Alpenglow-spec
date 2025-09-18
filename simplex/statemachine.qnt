@@ -79,7 +79,7 @@ module statemachine {
       )
     )
 
-  /// all the messages that could be received, i.e., the ones sent by correct processes
+  /// All the messages that could be received, i.e., the ones sent by correct processes
   /// and the ones that byzantine processes may send
   val allNetworkMsgs = s.msgBuffer.union(byzNetworkMsgs)
 
@@ -197,30 +197,45 @@ module statemachine {
     }
   }
 
+  // Send Final message if we have enough votes to (Rule 3)
+  action sendFinal(u: ProcessID): bool = all {
+    u.in(CORRECT),
+    s.decisions.get(u) == None,
+    val ls = s.localStates.get(u)
+    all {
+      not(ls.sentFinal),
+      val values = slowCertValues(allNetworkMsgs, ls.view)
+      all {
+        values.size() > 0,
+        // TODO: assert that values.size() == 1
+        nondet value = values.oneOf()
+        all {
+          val res = sendFinalMsg(ls, value)
+          s' = applyResult(s, u, res),
+          counter' = counter + 1
+        }
+      }
+    }
+  }
+
   /// Main step action
   action step = all {
     counter < maxCounter,
     any {
       nondet u = CORRECT.oneOf()
       any {
-        // sendProposal(u),
-        nondet msg = allNetworkMsgs.oneOf()
-        // receiveMessage(u, msg),
         voteTimeout(u),
         finalTimeout(u),
         proposeAtViewZero(u),
         moveToNextViewAndMaybePropose(u),
         voteOnProposal(u),
+        sendFinal(u),
         takeDecision(u),
       }
     }
   }
 
-  //
-  //
-  // Invariants and Properties
-  //
-  //
+  //// Invariants and Properties
 
   /// Agreement: no two correct processes decide different values
   val agreement =
