@@ -72,12 +72,7 @@ module statemachine {
     )
 
   /// All votes that can be sent by the Byzantine processes
-  pure val byzNetworkMsgs =
-    BYZANTINE.fold(Set(), (acc, sender) =>
-      byzMessages.fold(acc, (acc2, msg) =>
-        acc2.union(Set({ sender: sender, msg: msg }))
-      )
-    )
+  const byzNetworkMsgs : Set[NetworkMsg]
 
   /// All the messages that could be received, i.e., the ones sent by correct processes
   /// and the ones that byzantine processes may send
