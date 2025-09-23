@@ -1,20 +1,13 @@
-// byzNetworkMsgs =
-//     BYZANTINE.fold(Set(), (acc, sender) =>
-//       byzMessages.fold(acc, (acc2, msg) =>
-//         acc2.union(Set({ sender: sender, msg: msg }))
-//       )
-//     )
-
 module simplex_2_parties {
   import statemachine(
     CORRECT = Set("p1", "p2"),
     BYZANTINE = Set("b1"),
     F = 1,
     P = 1,
-    power = Map("p1" -> 1, "p2" -> 4, "b1" -> 1),
-    proposalValues = Set(1, 2),
-    maxCounter = 20,
-    maxView = 2,
+    POWER = Map("p1" -> 1, "p2" -> 4, "b1" -> 1),
+    VALUES = Set(1, 2),
+    MAX_COUNTER = 20,
+    MAX_VIEW = 2,
     byzNetworkMsgs = Set(),  // Byzantine is silent
   ).* from "./statemachine"
 
@@ -64,10 +57,10 @@ module simplex_2_parties_bis {
     BYZANTINE = Set(),
     F = 1,
     P = 1,
-    power = Map("p1" -> 2, "p2" -> 3, "p3" -> 1),
-    proposalValues = Set(1, 2),
-    maxCounter = 20,
-    maxView = 2,
+    POWER = Map("p1" -> 2, "p2" -> 3, "p3" -> 1),
+    VALUES = Set(1, 2),
+    MAX_COUNTER = 20,
+    MAX_VIEW = 2,
     byzNetworkMsgs = Set(),  // Byzantine is silent
   ).* from "./statemachine"
 
@@ -155,14 +148,25 @@ module simplex_2_parties_bis {
     .expect(allCorrectDecided)
 }
 
+module byz_messages {
+  import statemachine.* from "./statemachine"
+  pure val maxView = 2
+  pure val proposalValues = Set(1, 2)
+  pure val byzProcesses = Set("b1")
+  pure val byzMsgs = allByzNetworkMsgs(Set("b1"), maxView, proposalValues)
+}
 
-module simplex_5_parties_1_byz {
+module simplex_2_byz {
+  import byz_messages.*
   import statemachine(
-    CORRECT = Set("p1", "p2", "p3", "p4"),
-    BYZANTINE = Set("b1"),
+    CORRECT = Set("p1", "p2"),
+    BYZANTINE = byzProcesses,
     F = 1,
     P = 1,
-    power = Set("p1", "p2", "p3", "p4", "b1").mapBy(_ => 1),
-    proposalValues = Set(1, 2),
+    POWER = Map("p1" -> 2, "p2" -> 2, "b1" -> 2),
+    VALUES = proposalValues,
+    MAX_COUNTER = 20,
+    MAX_VIEW = maxView,
+    byzNetworkMsgs = byzMsgs,
   ).* from "./statemachine"
 }

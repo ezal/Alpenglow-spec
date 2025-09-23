@@ -13,3 +13,6 @@ test:
 	quint test instances.qnt --main simplex_2_parties --match agree
 	quint test instances.qnt --main simplex_2_parties_bis --match change
 	quint test instances.qnt --main simplex_2_parties_bis --match agree
+
+run:
+  quint run instances.qnt --main simplex_2_byz --invariant agreement

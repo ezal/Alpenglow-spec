@@ -39,11 +39,11 @@ module simplex {
   const BYZANTINE: Set[ProcessID]
   pure val PROCESSES = CORRECT.union(BYZANTINE)
 
-  const power: ProcessID -> int
+  const POWER: ProcessID -> int
 
   /// Number of processes (total voting power)
   pure def sumPower(s: Set[ProcessID]): int =
-    s.fold(0, (acc, x) => acc + power.get(x))
+    s.fold(0, (acc, x) => acc + POWER.get(x))
 
   pure val N = sumPower(PROCESSES)
 

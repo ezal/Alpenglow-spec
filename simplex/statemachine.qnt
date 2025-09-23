@@ -8,9 +8,9 @@ module statemachine {
   import simplex.* from "./simplex"
   export simplex.*
 
-  const maxCounter: int  // Bound for model checking
+  const MAX_COUNTER: int  // Bound for model checking
 
-  const maxView: int
+  const MAX_VIEW: int
 
   /// This is all the information of the global state
   type System = {
@@ -47,31 +47,45 @@ module statemachine {
   }
 
 
-  //
-  //
-  // State Machine
-  //
-  //
+  //// State Machine
 
   var s: System
 
   var counter: int // Required for bounded model checking
 
+  pure def proposeMsgs(view: View, value: Value) : Set[Message] =
+      0.to(view-1).fold(Set(ProposeMsg({ view: view, value: value, cert: NoCert })), (acc, v) =>
+        acc.union(Set(
+          ProposeMsg({ view: view, value: value, cert: FastCert({ view: v, value: value }) }),
+          ProposeMsg({ view: view, value: value, cert: SlowCert({ view: v, value: value }) })))
+      )
+
   /// All possible messages that Byzantine processes can send
-  pure val byzMessages =
-    proposalValues.union(Set(BOTTOM)).fold(Set(), (acc, value) =>
-      // Consider views 0 to maxView
+  pure def byzMessages(sender: ProcessID, maxView: View, values: Set[Value]) : Set[Message] =
+    values.fold(Set(), (acc, value) =>
+      // Consider views 0 to mAX_VIEW
       0.to(maxView).fold(acc, (acc2, view) =>
+        val proposals =
+          if (sender.isLeader(view))
+            proposeMsgs(view, value)
+          else 
+            Set()
         acc2.union(Set(
           VoteMsg({ view: view, value: value }),
           FinalMsg({ view: view, value: value })
-          // TODO: also include ProposeMsg; note, there are many!
-          // We should build only those with the right leader
-        ))
+        ).union(proposals))
       )
     )
 
-  /// All votes that can be sent by the Byzantine processes
+  /// All the messages that can be sent by the Byzantine processes
+  pure def allByzNetworkMsgs(byzantines: Set[ProcessID], maxView: View, values: Set[Value]) : Set[NetworkMsg] =
+    byzantines.fold(Set(), (acc, sender) =>
+      byzMessages(sender, maxView, values).fold(acc, (acc2, msg) =>
+        acc2.union(Set({ sender: sender, msg: msg }))
+      )
+    )
+
+  /// All messages actually made available to the Byzantine processes
   const byzNetworkMsgs : Set[NetworkMsg]
 
   /// All the messages that could be received, i.e., the ones sent by correct processes
@@ -79,7 +93,7 @@ module statemachine {
   val allNetworkMsgs = s.msgBuffer.union(byzNetworkMsgs)
 
   /// All possible values that can be proposed
-  const proposalValues: Set[Value]
+  const VALUES: Set[Value]
 
   action init = all {
     s' = {
@@ -122,11 +136,11 @@ module statemachine {
     val msgs = allNetworkMsgs
 
     all {
-      ls.view < maxView,
+      ls.view < MAX_VIEW,
       canIncreaseView(ls, msgs),
       // TODO: we could rather choose any not-yet-proposed value
-      nondet value = proposalValues.oneOf()
-      val input = NextViewInput((u, value, msgs, proposalValues))
+      nondet value = VALUES.oneOf()
+      val input = NextViewInput((u, value, msgs, VALUES))
       applyInput(u, input)
     }
   }
@@ -148,7 +162,7 @@ module statemachine {
 
   action proposeAtViewZero(u: ProcessID): bool = all {
     // TODO: we could rather choose any not-yet-proposed value
-    nondet value = proposalValues.oneOf()
+    nondet value = VALUES.oneOf()
     proposeValueAtViewZero(u, value)
   }
 
@@ -165,7 +179,7 @@ module statemachine {
   }
 
   action takeDecision(u: ProcessID): bool = all {
-    nondet value = proposalValues.oneOf()
+    nondet value = VALUES.oneOf()
     takeDecisionOn(u, value)
   }
   /// Vote on a valid proposal (Rule 2)
@@ -178,16 +192,19 @@ module statemachine {
       // TODO: do we indeed only accept the proposal in the current view? I think
       // this makes sense indeed, but it's not in the spec!
       val proposals = allNetworkMsgs.getProposals(ls.view)
-      nondet proposeMsg = proposals.oneOf()
       all {
-        // TODO: check invariant: all proposals come from the expected leaders
-        isValidProposal(ls, proposeMsg, allNetworkMsgs),
-        // TODO: update highestCert?? We should do that even if u has already voted, right?
-        val res = {
-          output: Set(Broadcast(VoteMsg({view: ls.view, value: getMsgValue(proposeMsg.msg)}))),
-          post: { ...ls, voted: true }}
-        s' = applyResult(s, u, res),
-        counter' = counter + 1,
+        proposals.size() > 0,
+        nondet proposeMsg = proposals.oneOf()
+        all {
+          // TODO: check invariant: all proposals come from the expected leaders
+          isValidProposal(ls, proposeMsg, allNetworkMsgs),
+          // TODO: update highestCert?? We should do that even if u has already voted, right?
+          val res = {
+            output: Set(Broadcast(VoteMsg({view: ls.view, value: getMsgValue(proposeMsg.msg)}))),
+            post: { ...ls, voted: true }}
+          s' = applyResult(s, u, res),
+          counter' = counter + 1,
+        }
       }
     }
   }
@@ -215,7 +232,7 @@ module statemachine {
 
   /// Main step action
   action step = all {
-    counter < maxCounter,
+    counter < MAX_COUNTER,
     any {
       nondet u = CORRECT.oneOf()
       any {
