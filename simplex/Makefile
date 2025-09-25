@@ -15,4 +15,4 @@ test:
 	quint test instances.qnt --main simplex_2_parties_bis --match agree
 
 run:
-  quint run instances.qnt --main simplex_2_byz --invariant agreement
+	quint run instances.qnt --main simplex_2_byz --invariant agreement

@@ -62,17 +62,13 @@ module simplex {
     // sumPower(byzantine) <= F,
   }
 
-  /// Leader selection function: simple round-robin leader selection
-  pure def leader(view: View): ProcessID = {
-    val allProcs = PROCESSES.fold(List(), (acc, p) => acc.append(p))
-    val index = view % allProcs.length()
-    allProcs[index]
-  }
+  const LEADER: View -> ProcessID
 
   /// Check if process is the leader of a view
   pure def isLeader(proc: ProcessID, view: View): bool = {
     // echo(proc + " is leader of view " + view + ": " + (leader(view) == proc))
-    leader(view) == proc
+    // assert(view.in(LEADER.keys()))
+    LEADER.get(view) == proc
   }
 
   /// Certificate types

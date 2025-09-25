@@ -5,9 +5,10 @@ module simplex_2_parties {
     F = 1,
     P = 1,
     POWER = Map("p1" -> 1, "p2" -> 4, "b1" -> 1),
+    MAX_VIEW = 2,
+    LEADER = Map(0 -> "p1", 1 -> "p2", 2 -> "b1"),
     VALUES = Set(1, 2),
     MAX_COUNTER = 20,
-    MAX_VIEW = 2,
     byzNetworkMsgs = Set(),  // Byzantine is silent
   ).* from "./statemachine"
 
@@ -15,8 +16,8 @@ module simplex_2_parties {
   run fast_agree_in_view_0 =
     init
     .then(proposeValueAtViewZero("p1", 1))
-    .then(voteOnProposal("p1"))
-    .then(voteOnProposal("p2"))
+    .then(voteOnSomeProposal("p1"))
+    .then(voteOnSomeProposal("p2"))
     .then(takeDecisionOn("p1", 1))
     .then(takeDecisionOn("p2", 1))
     .expect(allCorrectDecided)
@@ -25,7 +26,7 @@ module simplex_2_parties {
   run slow_agree_in_view_0 =
     init
     .then(proposeAtViewZero("p1"))
-    .then(voteOnProposal("p2"))
+    .then(voteOnSomeProposal("p2"))
     .then(sendFinal("p2"))
     .then(takeDecision("p1"))
     .then(takeDecision("p2"))
@@ -40,8 +41,8 @@ module simplex_2_parties {
     .then(voteTimeout("p1"))
     .then(finalTimeout("p1"))
     .then(moveToNextViewAndMaybePropose("p1"))
-    .then(voteOnProposal("p1"))
-    .then(voteOnProposal("p2"))
+    .then(voteOnSomeProposal("p1"))
+    .then(voteOnSomeProposal("p2"))
     // Note: we don't know what value was proposed in view 1, so we can't use takeDecisionOn
     .then(takeDecision("p1"))
     .then(takeDecision("p2"))
@@ -58,9 +59,10 @@ module simplex_2_parties_bis {
     F = 1,
     P = 1,
     POWER = Map("p1" -> 2, "p2" -> 3, "p3" -> 1),
+    MAX_VIEW = 2,
+    LEADER = Map(0 -> "p1", 1 -> "p2", 2 -> "b1"),
     VALUES = Set(1, 2),
     MAX_COUNTER = 20,
-    MAX_VIEW = 2,
     byzNetworkMsgs = Set(),  // Byzantine is silent
   ).* from "./statemachine"
 
@@ -68,8 +70,8 @@ module simplex_2_parties_bis {
   run fast_agree_in_view_0 =
     init
     .then(proposeValueAtViewZero("p1", 1))
-    .then(voteOnProposal("p1"))
-    .then(voteOnProposal("p2"))
+    .then(voteOnSomeProposal("p1"))
+    .then(voteOnSomeProposal("p2"))
     .then(takeDecisionOn("p1", 1))
     .then(takeDecisionOn("p2", 1))
     .then(takeDecisionOn("p3", 1))
@@ -79,8 +81,8 @@ module simplex_2_parties_bis {
   run slow_agree_in_view_0 =
     init
     .then(proposeAtViewZero("p1"))
-    .then(voteOnProposal("p2"))
-    .then(voteOnProposal("p3"))
+    .then(voteOnSomeProposal("p2"))
+    .then(voteOnSomeProposal("p3"))
     .then(sendFinal("p2"))
     .then(sendFinal("p3"))
     .then(takeDecision("p1"))
@@ -97,8 +99,8 @@ module simplex_2_parties_bis {
     .then(moveToNextViewAndMaybePropose("p2"))
     .then(voteTimeout("p1"))
     .then(moveToNextViewAndMaybePropose("p1"))
-    .then(voteOnProposal("p1"))
-    .then(voteOnProposal("p2"))
+    .then(voteOnSomeProposal("p1"))
+    .then(voteOnSomeProposal("p2"))
     .then(takeDecision("p1"))
     .then(takeDecision("p2"))
     .then(voteTimeout("p3"))
@@ -113,12 +115,12 @@ module simplex_2_parties_bis {
     .then(proposeValueAtViewZero("p1", 1))
     .then(voteTimeout("p1"))
     .then(finalTimeout("p1"))
-    .then(voteOnProposal("p2"))
+    .then(voteOnSomeProposal("p2"))
     .then(finalTimeout("p2"))
     .then(moveToNextViewAndMaybePropose("p2"))
     .then(moveToNextViewAndMaybePropose("p1"))
-    .then(voteOnProposal("p1"))
-    .then(voteOnProposal("p2"))
+    .then(voteOnSomeProposal("p1"))
+    .then(voteOnSomeProposal("p2"))
     .then(takeDecision("p1"))
     .then(takeDecision("p2"))
     .then(voteTimeout("p3"))
@@ -131,14 +133,14 @@ module simplex_2_parties_bis {
   run view_change_and_slow_cert_repropose =
     init
     .then(proposeValueAtViewZero("p1", 1))
-    .then(voteOnProposal("p1"))
+    .then(voteOnSomeProposal("p1"))
     .then(finalTimeout("p1"))
-    .then(voteOnProposal("p2"))
+    .then(voteOnSomeProposal("p2"))
     .then(finalTimeout("p2"))
     .then(moveToNextViewAndMaybePropose("p2"))
     .then(moveToNextViewAndMaybePropose("p1"))
-    .then(voteOnProposal("p1"))
-    .then(voteOnProposal("p2"))
+    .then(voteOnSomeProposal("p1"))
+    .then(voteOnSomeProposal("p2"))
     .then(takeDecision("p1"))
     .then(takeDecision("p2"))
     .then(voteTimeout("p3"))
@@ -159,14 +161,39 @@ module byz_messages {
 module simplex_2_byz {
   import byz_messages.*
   import statemachine(
-    CORRECT = Set("p1", "p2"),
+    CORRECT = Set("p1", "p2", "p3"),
     BYZANTINE = byzProcesses,
     F = 1,
     P = 1,
-    POWER = Map("p1" -> 2, "p2" -> 2, "b1" -> 2),
-    VALUES = proposalValues,
-    MAX_COUNTER = 20,
+    POWER = Map("b1" -> 2, "p1" -> 1, "p2" -> 1, "p3" -> 2),
     MAX_VIEW = maxView,
+    LEADER = Map(0 -> "b1", 1 -> "p2", 2 -> "p1", 3 -> "p3"),
+    VALUES = proposalValues,
+    MAX_COUNTER = 20, 
     byzNetworkMsgs = byzMsgs,
   ).* from "./statemachine"
+
+  pure val proposalView0Value1 = {msg: ProposeMsg({ view: 0, value: 1, cert: NoCert}), sender: "b1"}
+  pure val proposalView0Value2 = {msg: ProposeMsg({ view: 0, value: 2, cert: NoCert}), sender: "b1"}
+  pure val proposalView1Value2 = {msg: ProposeMsg({ view: 0, value: 2, cert: FastCert({view:0, value:2}) }), sender: "p2"}
+
+  run agreement_failure =
+    init
+    .then(voteOnProposal("p1", proposalView0Value1))
+    .then(voteOnProposal("p3", proposalView0Value1))
+    .then(takeDecisionOn("p1", 1))
+    .then(voteOnProposal("p2", proposalView0Value2))
+    // so for now there is Fast-Cert(0,2)
+    .then(finalTimeout("p2"))
+    .then(finalTimeout("p3"))
+    // there is now also a Slow-Cert(0,bot)
+    .then(moveToNextViewAndMaybePropose("p2"))
+    .expect(proposalView1Value2.in(s.msgBuffer))
+    .then(moveToNextViewAndMaybePropose("p3"))
+    .then(voteOnSomeProposal("p2"))
+    .then(sendFinal("p2"))
+    .then(voteOnSomeProposal("p3"))
+    .then(sendFinal("p3"))
+    .then(takeDecision("p2")) // different decision due to byz msg
+    .expect(not(agreement))
 }
