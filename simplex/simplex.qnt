@@ -175,8 +175,11 @@ module simplex {
     }
   }
 
-  pure def findHighestCert(highestView: View, msgs: Set[NetworkMsg], values: Set[Value]) : Certificate = {
-    val certs = values.fold(Set(), (acc, value) =>
+// 'values' may not include BOTTOM
+// XCert means FastCert and SlowCert, and not NoCert
+pure def allXCerts(highestView: View, msgs: Set[NetworkMsg], values: Set[Value]) : Set[Certificate] = {
+  (values.union(Set(BOTTOM)))
+    .fold(Set(), (acc, value) =>
       0.to(highestView).fold(acc, (acc2, view) =>
         val votesPower = getVotesPower(msgs, view, value)
         val res =
@@ -195,8 +198,12 @@ module simplex {
         }
       )
     )
+  }
 
-    certs.fold(NoCert, (best, cert) =>
+  pure def findHighestCert(highestView: View, msgs: Set[NetworkMsg], values: Set[Value]) : Certificate = {
+    val allCerts = allXCerts(highestView, msgs, values)
+
+    allCerts.fold(NoCert, (best, cert) =>
       if (higherPriority(cert, best)) cert else best
     )
   }
@@ -217,13 +224,13 @@ module simplex {
     voted: bool,
     sentFinal: bool,
     decided: Option[Value],
-    highestCert: Certificate,
+    // highestCert: Certificate,
   }
 
   type ConsensusInput =
     | VoteTimeoutInput(View)
     | FinalTimeoutInput(View)
-    | NextViewInput((ProcessID, Value, Set[NetworkMsg], Set[Value]))
+    | NextViewInput(LocalState)
 
   type ConsensusOutput =
     | Broadcast(Message)
@@ -244,10 +251,10 @@ module simplex {
     }
     else {
       // Valid proposal, vote for it
-      val highestCert = if (higherPriority(cert, ls.highestCert)) cert else ls.highestCert
+      // val highestCert = if (higherPriority(cert, ls.highestCert)) cert else ls.highestCert
       val newState = { ...ls,
         voted: true,
-        highestCert: highestCert
+        // highestCert: highestCert
       }
       {
         output: Set(Broadcast(VoteMsg({ view: k, value: x }))),
@@ -390,47 +397,24 @@ module simplex {
     (getFinalsPower(msgs, view, value) >= N - F - P)
   }
 
-  /// Propose an existing value if there is an certificate for it, otherwise propose [value] (Rule 1)
-  pure def propose(ls: LocalState, newValue: Value): Result = {
-    val proposedValue = match ls.highestCert {
-      | FastCert(c) => c.value
-      | SlowCert(c) => c.value
-      | NoCert => newValue
+  pure def increaseView(ls: LocalState): LocalState =
+    { 
+      view: ls.view + 1,
+      voted: false,
+      sentFinal: false,
+      proposed: false,
+      decided: None,
     }
-    val msg = ProposeMsg({ view: ls.view, value: proposedValue, cert: ls.highestCert })
-    val newLS = {...ls, proposed: true}
-    {output: Set(Broadcast(msg)), post: newLS}
-  }
-
-  pure def maybePropose(u: ProcessID, ls: LocalState, newValue: Value): Result = {
-    if (isLeader(u, ls.view) and not(ls.proposed)) {
-      propose(ls, newValue)
-    } else {
-      { output: Set(), post: ls }
-    }
-  }
-
-  // Increase view
-  pure def processNextView(u: ProcessID, ls: LocalState, newValue: Value, msgs: Set[NetworkMsg], values: Set[Value]): Result = {
-    // TODO: is it correct to update the highest cert in this way?
-    val highestCert = findHighestCert(ls.view, msgs, values)
-    val newLS = { ...ls,
-          view: ls.view + 1,
-          voted: false,
-          sentFinal: false,
-          proposed: false,
-          decided: None,
-          highestCert: highestCert,
-        }
-    maybePropose(u, newLS, newValue)
-  }
 
   /// Main consensus function
   pure def processInput(ls: LocalState, input: ConsensusInput): Result = {
     match input {
       | VoteTimeoutInput(view) => processVoteTimeout(ls, view)
       | FinalTimeoutInput(view) => processFinalTimeout(ls, view)
-      | NextViewInput(t) => processNextView(t._1, ls, t._2, t._3, t._4)
+      // | NextViewInput(t) => processNextView(t._1, ls, t._2, t._3, t._4, t._5)
+      | NextViewInput(ls) =>
+        val newLS = increaseView(ls)        
+        { output: Set(), post: newLS }
     }
   }
 
@@ -442,6 +426,6 @@ module simplex {
     voted: false,
     sentFinal: false,
     decided: None,
-    highestCert: NoCert,
+    // highestCert: NoCert,
   }
 }

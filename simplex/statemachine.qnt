@@ -103,7 +103,7 @@ module statemachine {
         voted: false,
         sentFinal: false,
         decided: None,
-        highestCert: NoCert,
+        // highestCert: NoCert,
       }),
       msgBuffer: Set(),
       decisions: CORRECT.mapBy(_ => None),
@@ -129,7 +129,24 @@ module statemachine {
   }
 
   /// 'u' moves to next view and proposes a value if it is the leader (Rules 8 and 1)
-  action moveToNextViewAndMaybePropose(u: ProcessID): bool = all {
+  // action moveToNextViewAndMaybeProposeWithCert(u: ProcessID, cert: certificate): bool = all {
+  //   u.in(CORRECT),
+  //   s.decisions.get(u) == None,
+  //   val ls = s.localStates.get(u)
+  //   val msgs = allNetworkMsgs
+
+  //   all {
+  //     ls.view < MAX_VIEW,
+  //     canIncreaseView(ls, msgs),
+  //     val value = certValue(cert)
+  //     val input = NextViewInput((u, value, msgs, VALUES, Some(cert)))
+  //     applyInput(u, input)
+  //   }
+  // }
+
+  /// 'u' moves to next view and proposes a value if it is the leader (Rules 8 and 1)
+  //action moveToNextViewAndMaybePropose(u: ProcessID): bool = all {
+  action moveToNextView(u: ProcessID): bool = all {
     u.in(CORRECT),
     s.decisions.get(u) == None,
     val ls = s.localStates.get(u)
@@ -140,30 +157,68 @@ module statemachine {
       canIncreaseView(ls, msgs),
       // TODO: we could rather choose any not-yet-proposed value
       nondet value = VALUES.oneOf()
-      val input = NextViewInput((u, value, msgs, VALUES))
+      val input = NextViewInput(ls)
       applyInput(u, input)
     }
   }
 
-  /// 'u' moves to next view and proposes a value if it is the leader (Rules 8 and 1)
-  action proposeValueAtViewZero(u: ProcessID, value: Value): bool = all {
+  // no checks ar done here, this is only used as a helper action
+  action proposeValueCert(u: ProcessID, ls: LocalState, value: Value, cert: Certificate) : bool = all {
+    val msg = ProposeMsg({ view: ls.view, value: value, cert: cert})
+    val newLS = {...ls, proposed: true}
+    val res = {output: Set(Broadcast(msg)), post: newLS}
+    s' = applyResult(s, u, res),
+    counter' = counter + 1,
+  }
+
+  action proposeValueNoCert(u: ProcessID, value: Value): bool = all {
     u.in(CORRECT),
-    s.decisions.get(u) == None,  // Haven't decided yet
+    s.decisions.get(u) == None,
     val ls = s.localStates.get(u)
     all {
-      ls.view == 0,
       not(ls.proposed),
       isLeader(u, ls.view),
-      val res = propose(ls, value)
-      s' = applyResult(s, u, res),
-      counter' = counter + 1,
+      proposeValueCert(u, ls, value, NoCert)
     }
   }
 
-  action proposeAtViewZero(u: ProcessID): bool = all {
+  // the action fails if 'cert' is a 'NoCert'
+  action proposeWithXCert(u: ProcessID, cert: Certificate): bool = all {
+    cert != NoCert,
+    u.in(CORRECT),
+    s.decisions.get(u) == None,
+    val ls = s.localStates.get(u)
+    all {
+      not(ls.proposed),
+      isLeader(u, ls.view), 
+      val value = certValue(cert)
+      proposeValueCert(u, ls, value, cert)
+    }
+  }
+
+  action propose(u: ProcessID): bool = all {
     // TODO: we could rather choose any not-yet-proposed value
-    nondet value = VALUES.oneOf()
-    proposeValueAtViewZero(u, value)
+    u.in(CORRECT),
+    s.decisions.get(u) == None,
+    val ls = s.localStates.get(u)
+    all {
+      not(ls.proposed),
+      isLeader(u, ls.view),
+      nondet cert = allXCerts(0, allNetworkMsgs, VALUES).union(Set(NoCert)).oneOf()
+      match cert {
+        | NoCert =>
+          nondet value = VALUES.oneOf()
+          proposeValueCert(u, ls, value, NoCert)
+        | _ =>
+          val value = certValue(cert)
+          if (certValue(cert) == BOTTOM) {
+            nondet value = VALUES.oneOf()
+            proposeValueCert(u, ls, value, cert)
+          } else {
+            proposeValueCert(u, ls, value, cert)
+          }
+      }
+    }
   }
 
   action takeDecisionOn(u: ProcessID, value: Value): bool = all {
@@ -241,8 +296,8 @@ module statemachine {
       any {
         voteTimeout(u),
         finalTimeout(u),
-        proposeAtViewZero(u),
-        moveToNextViewAndMaybePropose(u),
+        propose(u),
+        moveToNextView(u),
         voteOnSomeProposal(u),
         sendFinal(u),
         takeDecision(u),
@@ -254,7 +309,7 @@ module statemachine {
 
   val allCorrectDecided = CORRECT.forall(p => s.decisions.get(p) != None)
 
-  /// Agreement: no two correct processes decide different values
+  /// Agreement: no two correct processes decide different values (for use in runs)
   val agreement =
     CORRECT.forall(p1 =>
       CORRECT.forall(p2 =>
@@ -262,4 +317,8 @@ module statemachine {
         (s.decisions.get(p1) == s.decisions.get(p2))
       )
     )
+
+  /// Agreement as a temporal property (for use with 'verify')
+  temporal agreementInv =
+    always(agreement)
 }

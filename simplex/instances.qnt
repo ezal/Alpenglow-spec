@@ -15,17 +15,17 @@ module simplex_2_parties {
 
   run fast_agree_in_view_0 =
     init
-    .then(proposeValueAtViewZero("p1", 1))
+    .then(propose("p1"))
     .then(voteOnSomeProposal("p1"))
     .then(voteOnSomeProposal("p2"))
-    .then(takeDecisionOn("p1", 1))
-    .then(takeDecisionOn("p2", 1))
+    .then(takeDecision("p1"))
+    .then(takeDecision("p2"))
     .expect(allCorrectDecided)
 
   // If "p1" does not participate in voting, a (slow) decision can still be made
   run slow_agree_in_view_0 =
     init
-    .then(proposeAtViewZero("p1"))
+    .then(propose("p1"))
     .then(voteOnSomeProposal("p2"))
     .then(sendFinal("p2"))
     .then(takeDecision("p1"))
@@ -37,10 +37,11 @@ module simplex_2_parties {
     init
     .then(voteTimeout("p2"))
     .then(finalTimeout("p2"))
-    .then(moveToNextViewAndMaybePropose("p2"))
+    .then(moveToNextView("p2"))
+    .then(propose("p2"))
     .then(voteTimeout("p1"))
     .then(finalTimeout("p1"))
-    .then(moveToNextViewAndMaybePropose("p1"))
+    .then(moveToNextView("p1"))
     .then(voteOnSomeProposal("p1"))
     .then(voteOnSomeProposal("p2"))
     // Note: we don't know what value was proposed in view 1, so we can't use takeDecisionOn
@@ -69,18 +70,18 @@ module simplex_2_parties_bis {
 
   run fast_agree_in_view_0 =
     init
-    .then(proposeValueAtViewZero("p1", 1))
+    .then(propose("p1"))
     .then(voteOnSomeProposal("p1"))
     .then(voteOnSomeProposal("p2"))
-    .then(takeDecisionOn("p1", 1))
-    .then(takeDecisionOn("p2", 1))
-    .then(takeDecisionOn("p3", 1))
+    .then(takeDecision("p1"))
+    .then(takeDecision("p2"))
+    .then(takeDecision("p3"))
     .expect(allCorrectDecided)
 
   // Take a (slow) decision with "p2" and "p3"
   run slow_agree_in_view_0 =
     init
-    .then(proposeAtViewZero("p1"))
+    .then(propose("p1"))
     .then(voteOnSomeProposal("p2"))
     .then(voteOnSomeProposal("p3"))
     .then(sendFinal("p2"))
@@ -93,59 +94,61 @@ module simplex_2_parties_bis {
   // decide in view 1 due to no proposal in view 0
   run view_change_due_to_timeout =
     init
-    .then(voteTimeout("p2"))
+    .then(voteTimeout("p2"))  // that's already a Fast-Cert(0,bot)
     .then(finalTimeout("p2"))
-    .then(finalTimeout("p1"))
-    .then(moveToNextViewAndMaybePropose("p2"))
+    .then(finalTimeout("p1")) // and now also a Slow-Cert(0,bot)
+    .then(moveToNextView("p2")).then(propose("p2"))
     .then(voteTimeout("p1"))
-    .then(moveToNextViewAndMaybePropose("p1"))
+    .then(moveToNextView("p1"))
     .then(voteOnSomeProposal("p1"))
     .then(voteOnSomeProposal("p2"))
     .then(takeDecision("p1"))
     .then(takeDecision("p2"))
     .then(voteTimeout("p3"))
     .then(finalTimeout("p3"))
-    .then(moveToNextViewAndMaybePropose("p3"))
+    .then(moveToNextView("p3"))
     .then(takeDecision("p3"))
     .expect(allCorrectDecided)
 
   // scenarios with Fast-Cert re-proposal
   run view_change_and_repropose =
+    val v = 1
     init
-    .then(proposeValueAtViewZero("p1", 1))
+    .then(proposeValueNoCert("p1", v))
     .then(voteTimeout("p1"))
     .then(finalTimeout("p1"))
-    .then(voteOnSomeProposal("p2"))
-    .then(finalTimeout("p2"))
-    .then(moveToNextViewAndMaybePropose("p2"))
-    .then(moveToNextViewAndMaybePropose("p1"))
+    .then(voteOnSomeProposal("p2")) // already a Fast-Cert(0,v)
+    .then(finalTimeout("p2")) // and now also a Slow-Cert(0,bot)
+    .then(moveToNextView("p2"))
+    .then(proposeWithXCert("p2",FastCert({view:0, value:v})))
+    .then(moveToNextView("p1"))
     .then(voteOnSomeProposal("p1"))
     .then(voteOnSomeProposal("p2"))
     .then(takeDecision("p1"))
     .then(takeDecision("p2"))
     .then(voteTimeout("p3"))
     .then(finalTimeout("p3"))
-    .then(moveToNextViewAndMaybePropose("p3"))
+    .then(moveToNextView("p3"))
     .then(takeDecision("p3"))
     .expect(allCorrectDecided)
 
   // scenarios with Slow-Cert re-proposal
   run view_change_and_slow_cert_repropose =
     init
-    .then(proposeValueAtViewZero("p1", 1))
+    .then(propose("p1"))
     .then(voteOnSomeProposal("p1"))
     .then(finalTimeout("p1"))
     .then(voteOnSomeProposal("p2"))
     .then(finalTimeout("p2"))
-    .then(moveToNextViewAndMaybePropose("p2"))
-    .then(moveToNextViewAndMaybePropose("p1"))
+    .then(moveToNextView("p2")).then(propose("p2"))
+    .then(moveToNextView("p1"))
     .then(voteOnSomeProposal("p1"))
     .then(voteOnSomeProposal("p2"))
     .then(takeDecision("p1"))
     .then(takeDecision("p2"))
     .then(voteTimeout("p3"))
     .then(finalTimeout("p3"))
-    .then(moveToNextViewAndMaybePropose("p3"))
+    .then(moveToNextView("p3"))
     .then(takeDecision("p3"))
     .expect(allCorrectDecided)
 }
@@ -187,9 +190,10 @@ module simplex_2_byz {
     .then(finalTimeout("p2"))
     .then(finalTimeout("p3"))
     // there is now also a Slow-Cert(0,bot)
-    .then(moveToNextViewAndMaybePropose("p2"))
+    .then(moveToNextView("p2"))
+    .then(proposeWithXCert("p2", FastCert({view:0, value:2})))
     .expect(proposalView1Value2.in(s.msgBuffer))
-    .then(moveToNextViewAndMaybePropose("p3"))
+    .then(moveToNextView("p3")).then(propose("p3"))
     .then(voteOnSomeProposal("p2"))
     .then(sendFinal("p2"))
     .then(voteOnSomeProposal("p3"))
