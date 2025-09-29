@@ -62,9 +62,8 @@ module statemachine {
 
   /// All possible messages that Byzantine processes can send
   pure def byzMessages(sender: ProcessID, maxView: View, values: Set[Value]) : Set[Message] =
-    values.fold(Set(), (acc, value) =>
-      // Consider views 0 to mAX_VIEW
-      0.to(maxView).fold(acc, (acc2, view) =>
+    0.to(maxView).fold(Set(), (acc, view) =>
+      values.fold(acc, (acc2, value) =>
         val proposals =
           if (sender.isLeader(view))
             proposeMsgs(view, value)
@@ -74,7 +73,9 @@ module statemachine {
           VoteMsg({ view: view, value: value }),
           FinalMsg({ view: view, value: value })
         ).union(proposals))
-      )
+      ).union(Set(
+          VoteMsg({ view: view, value: BOTTOM }),
+          FinalMsg({ view: view, value: BOTTOM })))
     )
 
   /// All the messages that can be sent by the Byzantine processes

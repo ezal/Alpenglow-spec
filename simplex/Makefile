@@ -9,6 +9,7 @@ typecheck:
 	quint typecheck instances.qnt
 
 test:
+	quint test instances.qnt --main simplex_2_byz --match agreement_failure
 	quint test instances.qnt --main simplex_2_parties --match change
 	quint test instances.qnt --main simplex_2_parties --match agree
 	quint test instances.qnt --main simplex_2_parties_bis --match change

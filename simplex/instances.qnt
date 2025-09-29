@@ -178,7 +178,7 @@ module simplex_2_byz {
 
   pure val proposalView0Value1 = {msg: ProposeMsg({ view: 0, value: 1, cert: NoCert}), sender: "b1"}
   pure val proposalView0Value2 = {msg: ProposeMsg({ view: 0, value: 2, cert: NoCert}), sender: "b1"}
-  pure val proposalView1Value2 = {msg: ProposeMsg({ view: 0, value: 2, cert: FastCert({view:0, value:2}) }), sender: "p2"}
+  pure val proposalView1Value2 = {msg: ProposeMsg({ view: 1, value: 2, cert: FastCert({view:0, value:2}) }), sender: "p2"}
 
   run agreement_failure =
     init
@@ -193,10 +193,11 @@ module simplex_2_byz {
     .then(moveToNextView("p2"))
     .then(proposeWithXCert("p2", FastCert({view:0, value:2})))
     .expect(proposalView1Value2.in(s.msgBuffer))
-    .then(moveToNextView("p3")).then(propose("p3"))
+    .then(moveToNextView("p3"))
     .then(voteOnSomeProposal("p2"))
-    .then(sendFinal("p2"))
     .then(voteOnSomeProposal("p3"))
+    // we now have a Slow-Cert(2,1) 
+    .then(sendFinal("p2"))
     .then(sendFinal("p3"))
     .then(takeDecision("p2")) // different decision due to byz msg
     .expect(not(agreement))
