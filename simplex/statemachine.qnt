@@ -278,7 +278,7 @@ module statemachine {
       val values = slowCertValues(allNetworkMsgs, ls.view)
       all {
         values.size() > 0,
-        assert(values.size() == 1),
+        assert(sumPower(BYZANTINE) > F or values.size() == 1),
         nondet value = values.oneOf()
         all {
           val res = sendFinalMsg(ls, value)

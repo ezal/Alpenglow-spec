@@ -13,7 +13,7 @@ module simplex_2_parties {
   ).* from "./statemachine"
 
 
-  run fast_agree_in_view_0 =
+  run fast_path_in_view_0 =
     init
     .then(propose("p1"))
     .then(voteOnSomeProposal("p1"))
@@ -23,7 +23,7 @@ module simplex_2_parties {
     .expect(allCorrectDecided)
 
   // If "p1" does not participate in voting, a (slow) decision can still be made
-  run slow_agree_in_view_0 =
+  run slow_path_in_view_0 =
     init
     .then(propose("p1"))
     .then(voteOnSomeProposal("p2"))
@@ -68,7 +68,7 @@ module simplex_2_parties_bis {
   ).* from "./statemachine"
 
 
-  run fast_agree_in_view_0 =
+  run fast_path_in_view_0 =
     init
     .then(propose("p1"))
     .then(voteOnSomeProposal("p1"))
@@ -79,7 +79,7 @@ module simplex_2_parties_bis {
     .expect(allCorrectDecided)
 
   // Take a (slow) decision with "p2" and "p3"
-  run slow_agree_in_view_0 =
+  run slow_path_in_view_0 =
     init
     .then(propose("p1"))
     .then(voteOnSomeProposal("p2"))
@@ -172,7 +172,7 @@ module simplex_2_byz {
     MAX_VIEW = maxView,
     LEADER = Map(0 -> "b1", 1 -> "p2", 2 -> "p1", 3 -> "p3"),
     VALUES = proposalValues,
-    MAX_COUNTER = 20, 
+    MAX_COUNTER = 20,
     byzNetworkMsgs = byzMsgs,
   ).* from "./statemachine"
 
@@ -196,7 +196,7 @@ module simplex_2_byz {
     .then(moveToNextView("p3"))
     .then(voteOnSomeProposal("p2"))
     .then(voteOnSomeProposal("p3"))
-    // we now have a Slow-Cert(2,1) 
+    // we now have a Slow-Cert(2,1)
     .then(sendFinal("p2"))
     .then(sendFinal("p3"))
     .then(takeDecision("p2")) // different decision due to byz msg
