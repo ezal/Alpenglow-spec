@@ -71,6 +71,8 @@ module simplex {
     LEADER.get(view) == proc
   }
 
+  const MAX_VIEW: int
+
   /// Certificate types
   type Certificate =
     | FastCert({ view: View, value: Value })
@@ -278,9 +280,9 @@ pure def allXCerts(highestView: View, msgs: Set[NetworkMsg], values: Set[Value])
           val firstViewToCheck = res._1
           val checkBothCerts = res._2
           val restValid =
-            (firstViewToCheck + 1).to(ls.view - 1).forall(v =>
-              isValidCert(FastCert({view: v, value: BOTTOM}), msgs) and
-              isValidCert(SlowCert({view: v, value: BOTTOM}), msgs))
+            0.to(MAX_VIEW).forall(v => v < firstViewToCheck + 1 or v > ls.view - 1 or
+              (isValidCert(FastCert({view: v, value: BOTTOM}), msgs) and
+               isValidCert(SlowCert({view: v, value: BOTTOM}), msgs)))
           if (restValid) {
             if (firstViewToCheck < ls.view) {
               if (checkBothCerts) {

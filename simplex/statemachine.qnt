@@ -10,8 +10,6 @@ module statemachine {
 
   const MAX_COUNTER: int  // Bound for model checking
 
-  const MAX_VIEW: int
-
   /// This is all the information of the global state
   type System = {
     // The local state of each process
@@ -128,22 +126,6 @@ module statemachine {
     val input = FinalTimeoutInput(s.localStates.get(u).view)
     applyInput(u, input)
   }
-
-  /// 'u' moves to next view and proposes a value if it is the leader (Rules 8 and 1)
-  // action moveToNextViewAndMaybeProposeWithCert(u: ProcessID, cert: certificate): bool = all {
-  //   u.in(CORRECT),
-  //   s.decisions.get(u) == None,
-  //   val ls = s.localStates.get(u)
-  //   val msgs = allNetworkMsgs
-
-  //   all {
-  //     ls.view < MAX_VIEW,
-  //     canIncreaseView(ls, msgs),
-  //     val value = certValue(cert)
-  //     val input = NextViewInput((u, value, msgs, VALUES, Some(cert)))
-  //     applyInput(u, input)
-  //   }
-  // }
 
   /// 'u' moves to next view and proposes a value if it is the leader (Rules 8 and 1)
   //action moveToNextViewAndMaybePropose(u: ProcessID): bool = all {
