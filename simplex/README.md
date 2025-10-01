@@ -25,4 +25,9 @@ $ quint -r instances.qnt::simplex_2_parties
 
 See `instances.qnt` for the other scenarios.
 
+One could generate many traces using for instance:
+```
+quint run instances.qnt --main simplex_2_byz --invariant agreement --mbt --out-itf=traces/out.itf.json --n-traces 100
+```
+
 After any change do `make parse` and `make typecheck` to ensure no parse or typing errors are introduced.
