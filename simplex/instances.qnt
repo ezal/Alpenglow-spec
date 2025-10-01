@@ -202,3 +202,7 @@ module simplex_2_byz {
     .then(takeDecision("p2")) // different decision due to byz msg
     .expect(not(agreement))
 }
+
+// TODO:
+// - scenario showing the need for Rule 7
+// - scenario showing decision in views 0 and 1 without Byz msgs
