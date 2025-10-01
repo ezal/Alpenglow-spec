@@ -8,9 +8,11 @@ This is a one-shot consensus protocol with integrated fast and slow paths. That
 is, when assuming network synchrony and an honest leader,
 
 * *fast path*: decision after 1 voting phase (with `n-p` votes) if at most `p` failures
-* *slow path*: decision after 2 voting phases (with `n-f-p` votes) if at most `f` failures (and `p<=f`)
+* *slow path*: decision after 2 voting phases (with `n-f-p` votes) if at most `f` Byzantine failures and `p` crash failures (and `p<=f`)
 
-For now only 3 scenarios and the agreement property are specified.
+The agreement property is specified and a few scenarios (with and without
+Byzantines). Use `make test` to run all the specified scenarios. Use `make run`
+to check the agreement property.
 
 ## Playing with the specification in Quint
 
@@ -18,6 +20,7 @@ To play a scenario, do for instance:
 ```
 $ quint -r instances.qnt::simplex_2_parties
 > fast_agree_in_view_0
+> s
 ```
 
 See `instances.qnt` for the other scenarios.
