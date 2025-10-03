@@ -8,7 +8,7 @@ This is a one-shot consensus protocol with integrated fast and slow paths. That
 is, when assuming network synchrony and an honest leader,
 
 * *fast path*: decision after 1 voting phase (with `n-p` votes) if at most `p` failures
-* *slow path*: decision after 2 voting phases (with `n-f-p` votes) if at most `f` Byzantine failures and `p` crash failures (and `p<=f`)
+* *slow path*: decision after 2 voting phases (with `n-f-p` votes) if at most `f` Byzantine failures
 
 The agreement property is specified and a few scenarios (with and without
 Byzantines). Use `make test` to run all the specified scenarios. Use `make run`
